@@ -1,6 +1,5 @@
 module;
 
-#include <iterator>
 #include <string_view>
 #define GLFW_INCLUDE_VULKAN
 #include <algorithm>
@@ -62,6 +61,7 @@ private:
     auto init_vulkan() -> void {
         create_instance();
         createDebugMessenger();
+        createSurface();
         pickPhysicalDevice();
         createLogicalDevice();
     }
@@ -137,6 +137,16 @@ private:
         std::println(stderr, "[LOG] Debug Messenger created successfully created!");
     }
 
+    auto createSurface() -> void {
+        VkSurfaceKHR surface{};
+        if (glfwCreateWindowSurface(*instance_, window_, nullptr, &surface) != VK_SUCCESS) {
+            throw std::runtime_error("[ERR] Could not create window surface!");
+        }
+
+        surface_ = vk::raii::SurfaceKHR(instance_, surface);
+        std::println(stderr, "[LOG] Created window surface!");
+    }
+
     auto is_device_suitable(vk::raii::PhysicalDevice const& physical_dev) -> bool {
 
         auto supportsVulkan1_3 = physical_dev.getProperties().apiVersion >= vk::ApiVersion13;
@@ -187,20 +197,37 @@ private:
 
     auto createLogicalDevice() -> void {
         std::vector <vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice_.getQueueFamilyProperties();
+/*
         auto requiredQueueFamilyProperty =
             std::ranges::find_if(queueFamilyProperties, [](auto const& dqfp) {
-                return (dqfp.queueFlags & vk::QueueFlagBits::eGraphics & vk::QueueFlagBits::eCompute) != static_cast<vk::QueueFlags>(0);
+                return dqfp.queueFlags & vk::QueueFlagBits::eGraphics &&
+                       dqfp.queueFlags & vk::QueueFlagBits::eCompute;
             });
+*/
+        u32 queueFamilyIndex = ~0; // 0xFFFFFFFF
+        for (u32 qfIdx = 0; qfIdx < queueFamilyProperties.size(); ++qfIdx) {
+            if (queueFamilyProperties[qfIdx].queueFlags & vk::QueueFlagBits::eGraphics &&
+                queueFamilyProperties[qfIdx].queueFlags & vk::QueueFlagBits::eCompute  &&
+                physicalDevice_.getSurfaceSupportKHR(qfIdx, *surface_))
+            {
+                queueFamilyIndex = qfIdx;
+                break;
+            }
+        }
 
-        auto queueIndex = static_cast<u32>(std::distance(queueFamilyProperties.begin(), requiredQueueFamilyProperty));
+        if (queueFamilyIndex == ~0) {
+            throw std::runtime_error("[ERR] Could not find any GPU with required properties / extensions");
+        }
+
         f32 queuePriority = 0.5f;
+
         vk::DeviceQueueCreateInfo deviceQueueCreateInfo {
             {},
-            queueIndex,
+            queueFamilyIndex,
             1,
             &queuePriority,
         };
-        
+
         vk::StructureChain<
             vk::PhysicalDeviceFeatures2,
             vk::PhysicalDeviceVulkan11Features,
@@ -223,7 +250,8 @@ private:
         deviceCreateInfo.pNext = &featureChain;
 
         device_ = vk::raii::Device(physicalDevice_, deviceCreateInfo);
-        queue_  = vk::raii::Queue(device_, queueIndex, 0);
+        queue_  = vk::raii::Queue(device_, queueFamilyIndex, 0);
+        std::println("[LOG] Created logical device and queue!");
     }
 
     auto check(auto required, auto available, auto projection) -> bool {
@@ -251,6 +279,8 @@ private:
     vk::raii::Context context_{};
     vk::raii::Instance instance_{nullptr};
     vk::raii::DebugUtilsMessengerEXT debugMessenger_{nullptr};
+    vk::raii::SurfaceKHR surface_{nullptr};
+
     vk::raii::PhysicalDevice physicalDevice_{nullptr};
     vk::raii::Queue queue_{nullptr};
     vk::raii::Device device_{nullptr};
