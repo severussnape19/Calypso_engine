@@ -1,5 +1,6 @@
 module;
 
+#include <iterator>
 #include <string_view>
 #define GLFW_INCLUDE_VULKAN
 #include <algorithm>
@@ -62,6 +63,7 @@ private:
         create_instance();
         createDebugMessenger();
         pickPhysicalDevice();
+        createLogicalDevice();
     }
 
     auto create_instance() -> void {
@@ -135,28 +137,10 @@ private:
         std::println(stderr, "[LOG] Debug Messenger created successfully created!");
     }
 
-    auto pickPhysicalDevice() -> void {
-
-        vk::raii::PhysicalDevices physicalDevices(instance_);
-        if (physicalDevices.empty()) {
-            throw std::runtime_error("[ERR] No vulkan-compatible GPU found!");
-        }
-        auto dev = [&]() -> vk::raii::PhysicalDevice {
-            for (auto dev : physicalDevices) {
-                if (is_device_suitable(dev)) {
-                    return dev;
-                }
-            }
-            throw std::runtime_error("[ERR] Could not find a GPU with required specs");
-        };
-        physicalDevice_ = std::move(dev());
-    }
-
     auto is_device_suitable(vk::raii::PhysicalDevice const& physical_dev) -> bool {
 
         auto supportsVulkan1_3 = physical_dev.getProperties().apiVersion >= vk::ApiVersion13;
         auto isDiscrete = physical_dev.getProperties().deviceType == vk::PhysicalDeviceType::eDiscreteGpu;
-        auto hasGeometryShader = physical_dev.getFeatures().geometryShader;
 
         auto queueFamilies = physical_dev.getQueueFamilyProperties();
         bool supportsGraphics =
@@ -167,10 +151,79 @@ private:
         auto availableExtensions = physical_dev.enumerateDeviceExtensionProperties();
         bool supportsRequiredExtensions = check(deviceExtensions, availableExtensions, &vk::ExtensionProperties::extensionName);
 
-        if (supportsVulkan1_3 && isDiscrete && hasGeometryShader && supportsGraphics && supportsRequiredExtensions) {
+       auto features =
+           physical_dev.template getFeatures2<vk::PhysicalDeviceFeatures2,
+                                              vk::PhysicalDeviceVulkan11Features,
+                                              vk::PhysicalDeviceVulkan13Features,
+                                              vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
+       bool supportsRequiredFeatures =
+           features.template get<vk::PhysicalDeviceVulkan11Features>().shaderDrawParameters &&
+           features.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
+           features.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState;
+
+        if (supportsVulkan1_3 && isDiscrete && supportsGraphics && supportsRequiredExtensions && supportsRequiredFeatures) {
             return true;
         }
         return false;
+    }
+
+    auto pickPhysicalDevice() -> void {
+        vk::raii::PhysicalDevices physicalDevices(instance_);
+        if (physicalDevices.empty()) {
+            throw std::runtime_error("[ERR] No vulkan-compatible GPU found!");
+        }
+
+        auto const dev =
+            std::ranges::find_if(physicalDevices, [&](auto const& physical_dev) {
+                    return is_device_suitable(physical_dev);
+            });
+
+        if (dev == physicalDevices.end()) {
+            throw std::runtime_error("[ERR] Could not find a GPU with required specs");
+        }
+        physicalDevice_ = *dev;
+        std::println(stderr, "[LOG] Picked Physical Device!");
+    }
+
+    auto createLogicalDevice() -> void {
+        std::vector <vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice_.getQueueFamilyProperties();
+        auto requiredQueueFamilyProperty =
+            std::ranges::find_if(queueFamilyProperties, [](auto const& dqfp) {
+                return (dqfp.queueFlags & vk::QueueFlagBits::eGraphics & vk::QueueFlagBits::eCompute) != static_cast<vk::QueueFlags>(0);
+            });
+
+        auto queueIndex = static_cast<u32>(std::distance(queueFamilyProperties.begin(), requiredQueueFamilyProperty));
+        f32 queuePriority = 0.5f;
+        vk::DeviceQueueCreateInfo deviceQueueCreateInfo {
+            {},
+            queueIndex,
+            1,
+            &queuePriority,
+        };
+        
+        vk::StructureChain<
+            vk::PhysicalDeviceFeatures2,
+            vk::PhysicalDeviceVulkan11Features,
+            vk::PhysicalDeviceVulkan13Features,
+            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT
+        > featureChain {};
+        featureChain.template get<vk::PhysicalDeviceVulkan11Features>().shaderDrawParameters = VK_TRUE;
+        featureChain.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering = VK_TRUE;
+        featureChain.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState = VK_TRUE;
+
+        vk::DeviceCreateInfo deviceCreateInfo {
+            {},
+            1,
+            &deviceQueueCreateInfo,
+            {},
+            {},
+            static_cast<u32>(deviceExtensions.size()),
+            deviceExtensions.data(),
+        };
+        deviceCreateInfo.pNext = &featureChain;
+
+        device_ = vk::raii::Device(physicalDevice_, deviceCreateInfo);
+        queue_  = vk::raii::Queue(device_, queueIndex, 0);
     }
 
     auto check(auto required, auto available, auto projection) -> bool {
@@ -199,4 +252,6 @@ private:
     vk::raii::Instance instance_{nullptr};
     vk::raii::DebugUtilsMessengerEXT debugMessenger_{nullptr};
     vk::raii::PhysicalDevice physicalDevice_{nullptr};
+    vk::raii::Queue queue_{nullptr};
+    vk::raii::Device device_{nullptr};
 };
