@@ -1,5 +1,6 @@
 module;
 
+#include <limits>
 #include <string_view>
 #define GLFW_INCLUDE_VULKAN
 #include <algorithm>
@@ -64,6 +65,8 @@ private:
         createSurface();
         pickPhysicalDevice();
         createLogicalDevice();
+        createSwapchain();
+        createImageView();
     }
 
     auto create_instance() -> void {
@@ -196,14 +199,9 @@ private:
     }
 
     auto createLogicalDevice() -> void {
+
         std::vector <vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice_.getQueueFamilyProperties();
-/*
-        auto requiredQueueFamilyProperty =
-            std::ranges::find_if(queueFamilyProperties, [](auto const& dqfp) {
-                return dqfp.queueFlags & vk::QueueFlagBits::eGraphics &&
-                       dqfp.queueFlags & vk::QueueFlagBits::eCompute;
-            });
-*/
+
         u32 queueFamilyIndex = ~0; // 0xFFFFFFFF
         for (u32 qfIdx = 0; qfIdx < queueFamilyProperties.size(); ++qfIdx) {
             if (queueFamilyProperties[qfIdx].queueFlags & vk::QueueFlagBits::eGraphics &&
@@ -232,8 +230,8 @@ private:
             vk::PhysicalDeviceFeatures2,
             vk::PhysicalDeviceVulkan11Features,
             vk::PhysicalDeviceVulkan13Features,
-            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT
-        > featureChain {};
+            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT> featureChain {};
+
         featureChain.template get<vk::PhysicalDeviceVulkan11Features>().shaderDrawParameters = VK_TRUE;
         featureChain.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering = VK_TRUE;
         featureChain.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState = VK_TRUE;
@@ -254,6 +252,124 @@ private:
         std::println("[LOG] Created logical device and queue!");
     }
 
+    auto choose_swapchain_surface_format(std::vector<vk::SurfaceFormatKHR> const& formats) -> vk::SurfaceFormatKHR
+    {
+        assert(!formats.empty());
+        const auto formatIt = std::ranges::find_if(
+            formats, [](const auto& fmt) {
+                return fmt.format == vk::Format::eB8G8R8A8Srgb &&
+                       fmt.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear;
+            }
+        );
+        return (formatIt == formats.end()) ? formats[0] : *formatIt;
+    }
+
+    auto choose_swapchain_presentation_mode(std::vector<vk::PresentModeKHR> const & availablePrsentModes) -> vk::PresentModeKHR
+    {
+        assert(std::ranges::any_of(availablePrsentModes, [](auto const & presentMode) -> bool
+                {
+                    return presentMode == vk::PresentModeKHR::eFifo;
+                }
+        )); // Since eFifo is guaranteed to be available
+
+        return
+            std::ranges::any_of(availablePrsentModes, [](auto const & presentMode) -> bool
+            {
+                return vk::PresentModeKHR::eMailbox == presentMode;
+            }
+            ) ? vk::PresentModeKHR::eMailbox : vk::PresentModeKHR::eFifo;
+    }
+
+    auto choose_swapchain_extent(vk::SurfaceCapabilitiesKHR const & capabilities) -> vk::Extent2D
+    {
+        if (capabilities.currentExtent.width != std::numeric_limits<u32>::max()) {
+            return capabilities.currentExtent;
+        }
+
+        int width{};
+        int height{};
+        glfwGetFramebufferSize(window_, &width, &height);
+
+        return vk::Extent2D {
+            std::clamp<u32>(width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
+            std::clamp<u32>(height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height),
+        };
+    }
+
+    auto choose_swapchain_min_image_count(vk::SurfaceCapabilitiesKHR const & surfaceCapabilities) -> u32
+    {
+        // Min image count 3 for triple buffering. 2 for double buffering.
+        auto minImageCount = std::max(3u, surfaceCapabilities.minImageCount);
+        if ((0 < surfaceCapabilities.maxImageCount) && (surfaceCapabilities.maxImageCount < minImageCount)) {
+            minImageCount = surfaceCapabilities.maxImageCount;
+        }
+        return minImageCount;
+    }
+
+    auto createSwapchain() -> void {
+
+        vk::SurfaceCapabilitiesKHR surfaceCapabilities = physicalDevice_.getSurfaceCapabilitiesKHR(*surface_);
+        swapchainExtent = choose_swapchain_extent(surfaceCapabilities);
+        u32 minImageCount = choose_swapchain_min_image_count(surfaceCapabilities);
+
+        std::vector<vk::SurfaceFormatKHR> availableFormats = physicalDevice_.getSurfaceFormatsKHR(*surface_);
+        swapchainSurfaceFormat = choose_swapchain_surface_format(availableFormats);
+
+        std::vector<vk::PresentModeKHR> availablePrsentModes = physicalDevice_.getSurfacePresentModesKHR(*surface_);
+
+        vk::SwapchainCreateInfoKHR createInfo{};
+        createInfo
+            .setSurface(*surface_)
+            .setMinImageCount(minImageCount) // buffering
+            .setImageFormat(swapchainSurfaceFormat.format)
+            .setImageColorSpace(swapchainSurfaceFormat.colorSpace)
+            .setImageExtent(swapchainExtent) // Dimensions of images in swap chain in pixels
+            .setImageArrayLayers(1)
+            .setImageUsage(vk::ImageUsageFlagBits::eColorAttachment)
+            .setImageSharingMode(vk::SharingMode::eExclusive) // how the images are shared across the queues
+            .setPreTransform(surfaceCapabilities.currentTransform) // transformation prior presentation
+            .setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque) // uhh
+            .setPresentMode(choose_swapchain_presentation_mode(availablePrsentModes)) // eMail or eFifo
+            .setClipped(vk::True)
+            .setOldSwapchain(nullptr);
+
+        swapchain_ = vk::raii::SwapchainKHR(device_, createInfo);
+        swapchainImages = swapchain_.getImages();
+        std::println("[LOG] Created swapchain!");
+    }
+
+    auto createImageView() -> void {
+        vk::ImageViewCreateInfo viewCreateInfo{};
+        viewCreateInfo
+            .setViewType(vk::ImageViewType::e2D)
+            .setFormat(swapchainSurfaceFormat.format)
+            .setSubresourceRange({
+                vk::ImageAspectFlagBits::eColor, 
+                0,
+                1, 
+                0, 
+                1}
+            )
+            .setComponents({
+                vk::ComponentSwizzle::eIdentity,
+                vk::ComponentSwizzle::eIdentity,
+                vk::ComponentSwizzle::eIdentity,
+                vk::ComponentSwizzle::eIdentity,
+            }) // Used to swizzle around the color channels
+            .setSubresourceRange({
+                vk::ImageAspectFlagBits::eColor,
+                1,
+                1
+            }); // purpose of the image and which part of the image should be accessed
+        
+        for (auto& image : swapchainImages) {
+            viewCreateInfo.setImage(image);
+            swapchainImageViews.emplace_back(device_, viewCreateInfo);
+        }
+
+        std::println(stderr, "[LOG] Image views created!");
+    }
+
     auto check(auto required, auto available, auto projection) -> bool {
         return std::ranges::all_of(required, [&](std::string_view req) {
             return std::ranges::any_of(available, [req](std::string_view avl) {
@@ -261,6 +377,7 @@ private:
             }, projection);
         });
     };
+
 private:
     GLFWwindow* window_ { nullptr };
 
@@ -273,7 +390,7 @@ private:
 #endif
 
     std::vector<const char*> layers = {"VK_LAYER_KHRONOS_validation"};
-    std::vector<const char*> extensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+    std::vector<const char*> extensions{};
     std::vector<const char*> deviceExtensions = {vk::KHRSwapchainExtensionName};
 
     vk::raii::Context context_{};
@@ -284,4 +401,11 @@ private:
     vk::raii::PhysicalDevice physicalDevice_{nullptr};
     vk::raii::Queue queue_{nullptr};
     vk::raii::Device device_{nullptr};
+
+    vk::raii::SwapchainKHR swapchain_{nullptr};
+    std::vector<vk::Image> swapchainImages{};
+    vk::SurfaceFormatKHR swapchainSurfaceFormat{};
+    vk::Extent2D swapchainExtent{};
+
+    std::vector<vk::raii::ImageView> swapchainImageViews{};
 };
