@@ -1,5 +1,7 @@
 module;
 
+#include <fstream>
+#include <ios>
 #include <limits>
 #include <string_view>
 #define GLFW_INCLUDE_VULKAN
@@ -350,18 +352,13 @@ private:
                 1,
                 0,
                 1}
-            )
+            )// purpose of the image and which part of the image should be accessed
             .setComponents({
                 vk::ComponentSwizzle::eIdentity,
                 vk::ComponentSwizzle::eIdentity,
                 vk::ComponentSwizzle::eIdentity,
                 vk::ComponentSwizzle::eIdentity,
-            }) // Used to swizzle around the color channels
-            .setSubresourceRange({
-                vk::ImageAspectFlagBits::eColor,
-                1,
-                1
-            }); // purpose of the image and which part of the image should be accessed
+            }); // Used to swizzle around the color channels
 
         for (auto& image : swapchainImages) {
             viewCreateInfo.setImage(image);
@@ -372,7 +369,50 @@ private:
     }
 
     auto createGraphicsPipeline() -> void {
+        std::vector<char> shaderCode = load_shader("../shaders/slang.spv");
+        vk::raii::ShaderModule shaderModule = createShaderModule(shaderCode);
 
+        vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
+        vertShaderStageInfo
+            .setStage(vk::ShaderStageFlagBits::eVertex)
+            .setModule(shaderModule)
+            .setPName("vertMain"); // vertex shader entrypoint
+
+        vk::PipelineShaderStageCreateInfo fragShaderStageInfo{};
+        fragShaderStageInfo
+            .setStage(vk::ShaderStageFlagBits::eFragment)
+            .setModule(shaderModule)
+            .setPName("fragMain"); // fragment shader entrypoint
+
+        vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
+    }
+
+private:
+    static auto load_shader(std::string const& filename) -> std::vector<char> {
+        std::ifstream file(filename, std::ios::ate | std::ios::binary);
+        if (!file.is_open()) {
+            throw std::runtime_error("[ERR] Could not open the file!");
+        }
+        usize size = file.tellg();
+        std::vector<char> buffer(size);
+
+        file.seekg(0, std::ios::beg);
+        file.read(buffer.data(), static_cast<std::streamsize>(size));
+
+        file.close();
+        return buffer;
+    }
+
+    [[nodiscard]]
+    auto createShaderModule(std::vector<char> const& code) const -> vk::raii::ShaderModule {
+
+        vk::ShaderModuleCreateInfo createInfo{};
+        createInfo
+            .setCodeSize(code.size() * sizeof(char))
+            .setPCode(reinterpret_cast<const uint32_t*>(code.data()));
+        vk::raii::ShaderModule shaderModule{device_, createInfo};
+
+        return shaderModule;
     }
 
     auto check(auto required, auto available, auto projection) -> bool {
