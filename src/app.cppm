@@ -248,7 +248,7 @@ private:
             static_cast<u32>(deviceExtensions.size()),
             deviceExtensions.data(),
         };
-        deviceCreateInfo.pNext = &featureChain;
+        deviceCreateInfo.pNext = &featureChain.template get<vk::PhysicalDeviceFeatures2>();
 
         device_ = vk::raii::Device(physicalDevice_, deviceCreateInfo);
         queue_  = vk::raii::Queue(device_, queueFamilyIndex, 0);
@@ -384,7 +384,107 @@ private:
             .setModule(shaderModule)
             .setPName("fragMain"); // fragment shader entrypoint
 
-        vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
+        std::array<vk::PipelineShaderStageCreateInfo, 2> shaderStages{vertShaderStageInfo, fragShaderStageInfo};
+        vk::PipelineVertexInputStateCreateInfo vertexInputInfo{}; // format of the input vertices
+
+        vk::PipelineInputAssemblyStateCreateInfo inputAsmSatecreateInfo{};
+        inputAsmSatecreateInfo
+            .setTopology(vk::PrimitiveTopology::eTriangleList);
+/*
+        vk::Viewport viewport{};
+        viewport
+            .setX(0.f)
+            .setY(0.f)
+            .setWidth(static_cast<float>(swapchainExtent.width))
+            .setHeight(static_cast<float>(swapchainExtent.height))
+            .setMinDepth(0.f)
+            .setMaxDepth(1.f);
+
+        vk::Rect2D scissor{
+            vk::Offset2D{0, 0},
+            swapchainExtent
+        };
+*/
+        vk::PipelineViewportStateCreateInfo viewportState{};
+        viewportState
+            .setViewportCount(1u)
+            .setScissorCount(1u);
+
+        // So that we can change the values dynamically later
+        std::vector<vk::DynamicState> dynamicStates{vk::DynamicState::eViewport, vk::DynamicState::eScissor};
+        vk::PipelineDynamicStateCreateInfo dynamicState{};
+        dynamicState
+            .setDynamicStateCount(static_cast<u32>(dynamicStates.size()))
+            .setPDynamicStates(dynamicStates.data());
+
+        vk::PipelineRasterizationStateCreateInfo rasterizer{};
+        rasterizer
+            .setDepthClampEnable(vk::False)
+            .setRasterizerDiscardEnable(vk::False)
+            .setPolygonMode(vk::PolygonMode::eFill) // determines how fragments are generated for geometry
+            .setCullMode(vk::CullModeFlagBits::eBack) // backward culling
+            .setFrontFace(vk::FrontFace::eClockwise) // which vertex ordering to be considered front facing
+            .setDepthBiasClamp(vk::False)
+            .setLineWidth(1.0f);
+
+        vk::PipelineMultisampleStateCreateInfo multisampling{};
+        multisampling
+            .setRasterizationSamples(vk::SampleCountFlagBits::e1)
+            .setSampleShadingEnable(vk::False);
+
+        vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
+        colorBlendAttachment
+            .setBlendEnable(vk::False)
+            .setColorWriteMask(
+                vk::ColorComponentFlagBits::eR |
+                vk::ColorComponentFlagBits::eG |
+                vk::ColorComponentFlagBits::eB |
+                vk::ColorComponentFlagBits::eA
+            );
+
+        vk::PipelineColorBlendStateCreateInfo colorBlending{
+            {},
+            vk::False,
+            vk::LogicOp::eCopy,
+            1u,
+            &colorBlendAttachment,   
+        };
+
+        vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
+        pipelineLayoutInfo
+            .setSetLayoutCount(0u)
+            .setPushConstantRangeCount(0u);
+        pipelineLayout_ = vk::raii::PipelineLayout(device_, pipelineLayoutInfo);
+
+        vk::GraphicsPipelineCreateInfo graphicsPipelineInfo{};
+        graphicsPipelineInfo
+            .setStageCount(2u)
+            .setPStages(shaderStages.data())
+            .setPVertexInputState(&vertexInputInfo)
+            .setPInputAssemblyState(&inputAsmSatecreateInfo)
+            .setPViewportState(&viewportState)
+            .setPRasterizationState(&rasterizer)
+            .setPMultisampleState(&multisampling)
+            .setPColorBlendState(&colorBlending)
+            .setPDynamicState(&dynamicState)
+            .setLayout(pipelineLayout_)
+            .setRenderPass(nullptr);
+        
+        vk::PipelineRenderingCreateInfo pipelineRenderingInfo{
+            {},
+            1u,
+            &swapchainSurfaceFormat.format
+        };
+
+        vk::StructureChain<vk::GraphicsPipelineCreateInfo ,vk::PipelineRenderingCreateInfo>  
+            pipelineCreateInfoChain = {graphicsPipelineInfo, pipelineRenderingInfo};
+            
+        graphicsPipeline_ = vk::raii::Pipeline(
+            device_, 
+            nullptr, 
+            pipelineCreateInfoChain.template get<vk::GraphicsPipelineCreateInfo>());
+
+        std::println(stderr, "[LOG] graphics pipeline object created!");
     }
 
 private:
@@ -453,4 +553,6 @@ private:
     vk::Extent2D swapchainExtent{};
 
     std::vector<vk::raii::ImageView> swapchainImageViews{};
+    vk::raii::PipelineLayout pipelineLayout_{nullptr};
+    vk::raii::Pipeline graphicsPipeline_{nullptr};
 };
