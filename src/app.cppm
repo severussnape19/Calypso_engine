@@ -66,7 +66,8 @@ private:
         pickPhysicalDevice();
         createLogicalDevice();
         createSwapchain();
-        createImageView();
+        createImageViews();
+        createGraphicsPipeline();
     }
 
     auto create_instance() -> void {
@@ -338,16 +339,16 @@ private:
         std::println("[LOG] Created swapchain!");
     }
 
-    auto createImageView() -> void {
+    auto createImageViews() -> void {
         vk::ImageViewCreateInfo viewCreateInfo{};
         viewCreateInfo
             .setViewType(vk::ImageViewType::e2D)
             .setFormat(swapchainSurfaceFormat.format)
             .setSubresourceRange({
-                vk::ImageAspectFlagBits::eColor, 
+                vk::ImageAspectFlagBits::eColor,
                 0,
-                1, 
-                0, 
+                1,
+                0,
                 1}
             )
             .setComponents({
@@ -361,13 +362,17 @@ private:
                 1,
                 1
             }); // purpose of the image and which part of the image should be accessed
-        
+
         for (auto& image : swapchainImages) {
             viewCreateInfo.setImage(image);
             swapchainImageViews.emplace_back(device_, viewCreateInfo);
         }
 
         std::println(stderr, "[LOG] Image views created!");
+    }
+
+    auto createGraphicsPipeline() -> void {
+
     }
 
     auto check(auto required, auto available, auto projection) -> bool {
