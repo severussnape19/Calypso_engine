@@ -499,6 +499,8 @@ private:
             .setDepthBoundsTestEnable(vk::False)
             .setStencilTestEnable(vk::False);
 
+        
+
         vk::GraphicsPipelineCreateInfo graphicsPipelineInfo{};
         graphicsPipelineInfo
             .setStageCount(2u)
@@ -571,14 +573,21 @@ private:
             .setClearValue(vk::ClearValue{vk::ClearColorValue{std::array<float, 4>{0.f, 0.f, 0.f, 1.f}}});
 
         vk::RenderingAttachmentInfo depthAttachmentInfo{};
+        depthAttachmentInfo
+            .setImageView(depthImageView_)
+            .setImageLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal)
+            .setLoadOp(vk::AttachmentLoadOp::eClear)
+            .setStoreOp(vk::AttachmentStoreOp::eDontCare) // we dont need depth after the frame ends
+            .setClearValue(vk::ClearValue{vk::ClearDepthStencilValue{1.f, 0}});
 
         vk::RenderingInfo renderingInfo{};
         renderingInfo
             .setRenderArea(vk::Rect2D{{0, 0}, swapchainExtent})
             .setLayerCount(1u)
             .setColorAttachmentCount(1u)
-            .setPColorAttachments(&colorAttachmentInfo);
-       
+            .setPColorAttachments(&colorAttachmentInfo)
+            .setPDepthAttachment(&depthAttachmentInfo);
+
         // BEGIN
         commandBuffer_.beginRendering(renderingInfo);
 
@@ -679,13 +688,12 @@ private:
 
         for (u32 i = 0; i < memProps.memoryTypeCount; ++i) {
             if ((typeBits & (1 << i)) && 
-                (memProps.memoryTypes[i].propertyFlags & properties) == properties) {
+            (memProps.memoryTypes[i].propertyFlags & properties) == properties) {
                 return i;
             }
         }
         throw std::runtime_error("Failed to find find suitable memory type");
     }
-    
     // We use this function to transition the image before and after rendering
     auto transition_image_layout(
         u32 imageIndex,
