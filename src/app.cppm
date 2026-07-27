@@ -4,6 +4,7 @@ module;
 #include <ios>
 #include <limits>
 #include <string_view>
+#include <vector>
 #define GLFW_INCLUDE_VULKAN
 #include <algorithm>
 #include <exception>
@@ -53,7 +54,9 @@ private:
     auto main_loop() -> void {
         while (!glfwWindowShouldClose(window_)) {
             glfwPollEvents();
+            drawFrame();
         }
+        device_.waitIdle();
     }
 
     auto cleanUp() -> void {
@@ -70,13 +73,16 @@ private:
         createSwapchain();
         createImageViews();
         createGraphicsPipeline();
+        createCommandPool();
+        createCommandBuffer();
+        createSyncObjects();
     }
 
     auto create_instance() -> void {
         vk::ApplicationInfo appInfo {
             "Vulkan app",
             VK_MAKE_VERSION(0, 1, 0),
-            "cyclops",
+            "nyx",
             VK_MAKE_VERSION(0, 1, 0),
             VK_API_VERSION_1_3,
         };
@@ -220,6 +226,8 @@ private:
             throw std::runtime_error("[ERR] Could not find any GPU with required properties / extensions");
         }
 
+        queueIndex_ = queueFamilyIndex;
+
         f32 queuePriority = 0.5f;
 
         vk::DeviceQueueCreateInfo deviceQueueCreateInfo {
@@ -237,6 +245,7 @@ private:
 
         featureChain.template get<vk::PhysicalDeviceVulkan11Features>().shaderDrawParameters = VK_TRUE;
         featureChain.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering = VK_TRUE;
+        featureChain.template get<vk::PhysicalDeviceVulkan13Features>().synchronization2 = VK_TRUE;
         featureChain.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState = VK_TRUE;
 
         vk::DeviceCreateInfo deviceCreateInfo {
@@ -390,21 +399,7 @@ private:
         vk::PipelineInputAssemblyStateCreateInfo inputAsmSatecreateInfo{};
         inputAsmSatecreateInfo
             .setTopology(vk::PrimitiveTopology::eTriangleList);
-/*
-        vk::Viewport viewport{};
-        viewport
-            .setX(0.f)
-            .setY(0.f)
-            .setWidth(static_cast<float>(swapchainExtent.width))
-            .setHeight(static_cast<float>(swapchainExtent.height))
-            .setMinDepth(0.f)
-            .setMaxDepth(1.f);
 
-        vk::Rect2D scissor{
-            vk::Offset2D{0, 0},
-            swapchainExtent
-        };
-*/
         vk::PipelineViewportStateCreateInfo viewportState{};
         viewportState
             .setViewportCount(1u)
@@ -447,7 +442,7 @@ private:
             vk::False,
             vk::LogicOp::eCopy,
             1u,
-            &colorBlendAttachment,   
+            &colorBlendAttachment,
         };
 
         vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
@@ -469,22 +464,199 @@ private:
             .setPDynamicState(&dynamicState)
             .setLayout(pipelineLayout_)
             .setRenderPass(nullptr);
-        
+
         vk::PipelineRenderingCreateInfo pipelineRenderingInfo{
             {},
             1u,
             &swapchainSurfaceFormat.format
         };
 
-        vk::StructureChain<vk::GraphicsPipelineCreateInfo ,vk::PipelineRenderingCreateInfo>  
+        vk::StructureChain<vk::GraphicsPipelineCreateInfo ,vk::PipelineRenderingCreateInfo>
             pipelineCreateInfoChain = {graphicsPipelineInfo, pipelineRenderingInfo};
-            
+
         graphicsPipeline_ = vk::raii::Pipeline(
-            device_, 
-            nullptr, 
+            device_,
+            nullptr,
             pipelineCreateInfoChain.template get<vk::GraphicsPipelineCreateInfo>());
 
         std::println(stderr, "[LOG] graphics pipeline object created!");
+    }
+
+    auto createCommandPool() -> void {
+        vk::CommandPoolCreateInfo poolInfo{};
+        poolInfo
+            .setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer)
+            .setQueueFamilyIndex(queueIndex_);
+        commandPool_ = vk::raii::CommandPool(device_, poolInfo);
+    }
+
+    auto createCommandBuffer() -> void {
+        vk::CommandBufferAllocateInfo allocInfo{};
+        allocInfo
+            .setCommandPool(commandPool_)
+            .setLevel(vk::CommandBufferLevel::ePrimary)
+            .setCommandBufferCount(1u);
+        commandBuffer_ = std::move(vk::raii::CommandBuffers(device_, allocInfo).front());
+    }
+
+    // We tell the GPU what to do per frame
+    auto recordCommandBuffer(u32 imageIndex) -> void {
+        vk::CommandBufferBeginInfo beginInfo{};
+        beginInfo.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit); // sumbit once and then re-record
+        commandBuffer_.begin(beginInfo);
+
+        transition_image_layout(
+            imageIndex, 
+            vk::ImageLayout::eUndefined, 
+            vk::ImageLayout::eColorAttachmentOptimal, 
+            vk::AccessFlags2{}, 
+            vk::AccessFlags2{vk::AccessFlagBits2::eColorAttachmentWrite}, 
+            vk::PipelineStageFlags2{vk::PipelineStageFlagBits2::eTopOfPipe}, 
+            vk::PipelineStageFlags2{vk::PipelineStageFlagBits2::eColorAttachmentOutput});
+
+        vk::RenderingAttachmentInfo colorAttachmentInfo{};
+        colorAttachmentInfo
+            .setImageView(*swapchainImageViews[imageIndex])
+            .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
+            .setLoadOp(vk::AttachmentLoadOp::eClear) // clear image after use
+            .setClearValue(vk::ClearValue{vk::ClearColorValue{std::array<float, 4>{0.f, 0.f, 0.f, 1.f}}});
+
+        vk::RenderingInfo renderingInfo{};
+        renderingInfo
+            .setRenderArea(vk::Rect2D{{0, 0}, swapchainExtent})
+            .setLayerCount(1u)
+            .setColorAttachmentCount(1u)
+            .setPColorAttachments(&colorAttachmentInfo);
+       
+        // BEGIN
+        commandBuffer_.beginRendering(renderingInfo);
+
+        // Since the pipeline object does not bake the below values in and are dynamic, we should specify them here
+        vk::Viewport viewport{
+            0.f, 1.f,
+            static_cast<f32>(swapchainExtent.width),
+            static_cast<f32>(swapchainExtent.height),
+            0.f, 1.f
+        };
+        commandBuffer_.setViewport(0, viewport);
+
+        vk::Rect2D scissor{{0, 0}, swapchainExtent};
+        commandBuffer_.setScissor(0, scissor);
+        commandBuffer_.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline_);
+
+        commandBuffer_.draw(3, 1, 0, 0);
+        commandBuffer_.endRendering();
+
+        transition_image_layout(
+            imageIndex, 
+            vk::ImageLayout::eColorAttachmentOptimal, 
+            vk::ImageLayout::ePresentSrcKHR, 
+            vk::AccessFlags2{vk::AccessFlagBits2::eColorAttachmentWrite},
+            vk::AccessFlags2{}, 
+            vk::PipelineStageFlags2{vk::PipelineStageFlagBits2::eColorAttachmentOutput}, 
+            vk::PipelineStageFlags2{vk::PipelineStageFlagBits2::eBottomOfPipe});
+        
+        commandBuffer_.end();
+    }
+
+    // We use this function to transition the image before and after rendering
+    auto transition_image_layout(
+        u32 imageIndex,
+        vk::ImageLayout         old_layout,      vk::ImageLayout         new_layout,
+        vk::AccessFlags2        src_access_mask, vk::AccessFlags2        dst_access_mask,
+        vk::PipelineStageFlags2 src_stage_mask,  vk::PipelineStageFlags2 dst_stage_mask
+    ) -> void {
+        /* before we start rendering to an image, we need to transition its layout to one that is suitable for rendeing*/
+        vk::ImageMemoryBarrier2 barrier{};
+        barrier
+            .setSrcStageMask(src_stage_mask)
+            .setDstStageMask(dst_stage_mask)
+            .setSrcAccessMask(src_access_mask)
+            .setDstAccessMask(dst_access_mask)
+            .setOldLayout(old_layout)
+            .setNewLayout(new_layout)
+            .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+            .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+            .setImage(swapchainImages[imageIndex])
+            .setSubresourceRange({
+                vk::ImageAspectFlagBits::eColor,
+                0,
+                1,
+                0,
+                1
+            });
+
+        vk::DependencyInfo dependencyInfo{};
+        dependencyInfo
+            .setDependencyFlags({})
+            .setImageMemoryBarrierCount(1u)
+            .setPImageMemoryBarriers(&barrier);
+
+        commandBuffer_.pipelineBarrier2(dependencyInfo);
+
+        
+    }
+
+    auto createSyncObjects() -> void {
+        vk::SemaphoreCreateInfo semaphoreInfo{};
+        vk::FenceCreateInfo fenceInfo{};
+        fenceInfo.setFlags(vk::FenceCreateFlagBits::eSignaled);
+        
+        for (usize i = 0; i < swapchainImages.size(); ++i) {
+            imageAvailableSemaphores_.emplace_back(device_, semaphoreInfo);
+        }
+
+        for (usize i = 0; i < swapchainImages.size(); ++i) {
+            renderFinishedSemaphores_.emplace_back(device_, semaphoreInfo);
+        }
+
+        inflightFence_ = vk::raii::Fence(device_, fenceInfo);
+    }
+
+    auto drawFrame() -> void {
+        // blocks the CPU until the GPU signals the fence.
+        auto result = device_.waitForFences(*inflightFence_, vk::True, std::numeric_limits<u32>::max());
+        device_.resetFences(*inflightFence_);
+
+        // Acquire swapchain image
+        auto [acquireResult, imageIndex] = swapchain_.acquireNextImage(
+            std::numeric_limits<u32>::max(),
+            *imageAvailableSemaphores_[currentFrame_],
+            nullptr
+        );
+
+        // Reset and record command buffer
+        commandBuffer_.reset();
+        recordCommandBuffer(imageIndex);
+
+        // Submit
+        vk::SemaphoreSubmitInfo waitSemaphoreInfo{};
+        waitSemaphoreInfo
+            .setSemaphore(*imageAvailableSemaphores_[currentFrame_])
+            .setStageMask(vk::PipelineStageFlags2{vk::PipelineStageFlagBits2::eColorAttachmentOutput});
+
+        vk::SemaphoreSubmitInfo signalSemaphoreInfo{};
+        signalSemaphoreInfo
+            .setSemaphore(*renderFinishedSemaphores_[imageIndex]);
+        vk::CommandBufferSubmitInfo cmdSubmitInfo{};
+        cmdSubmitInfo.setCommandBuffer(*commandBuffer_);
+
+        vk::SubmitInfo2 submitInfo{};
+        submitInfo
+            .setWaitSemaphoreInfos(waitSemaphoreInfo)
+            .setCommandBufferInfos(cmdSubmitInfo)
+            .setSignalSemaphoreInfos(signalSemaphoreInfo);
+
+        queue_.submit2(submitInfo, *inflightFence_);
+
+        vk::PresentInfoKHR presentInfo{};
+        presentInfo
+            .setWaitSemaphores(*renderFinishedSemaphores_[imageIndex])
+            .setSwapchains(*swapchain_)
+            .setImageIndices(imageIndex);
+        result = queue_.presentKHR(presentInfo);
+
+        currentFrame_ = (currentFrame_ + 1) % swapchainImages.size();
     }
 
 private:
@@ -545,6 +717,7 @@ private:
 
     vk::raii::PhysicalDevice physicalDevice_{nullptr};
     vk::raii::Queue queue_{nullptr};
+    u32 queueIndex_{};
     vk::raii::Device device_{nullptr};
 
     vk::raii::SwapchainKHR swapchain_{nullptr};
@@ -555,4 +728,14 @@ private:
     std::vector<vk::raii::ImageView> swapchainImageViews{};
     vk::raii::PipelineLayout pipelineLayout_{nullptr};
     vk::raii::Pipeline graphicsPipeline_{nullptr};
+
+    // Manages the memory that is used to store the buffers.
+    // Command buffers are allocated from here.
+    vk::raii::CommandPool commandPool_{nullptr};
+    vk::raii::CommandBuffer commandBuffer_{nullptr};
+
+    std::vector<vk::raii::Semaphore> imageAvailableSemaphores_{};
+    std::vector<vk::raii::Semaphore> renderFinishedSemaphores_{};
+    vk::raii::Fence     inflightFence_{nullptr};
+    u32 currentFrame_{};
 };
