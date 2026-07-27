@@ -72,8 +72,11 @@ private:
         createLogicalDevice();
         createSwapchain();
         createImageViews();
-        createGraphicsPipeline();
         createCommandPool();
+        createDepthImage();
+        createDepthImageView();
+        transitionDepthImageLayout();
+        createGraphicsPipeline();
         createCommandBuffer();
         createSyncObjects();
     }
@@ -499,8 +502,6 @@ private:
             .setDepthBoundsTestEnable(vk::False)
             .setStencilTestEnable(vk::False);
 
-        
-
         vk::GraphicsPipelineCreateInfo graphicsPipelineInfo{};
         graphicsPipelineInfo
             .setStageCount(2u)
@@ -519,7 +520,8 @@ private:
         vk::PipelineRenderingCreateInfo pipelineRenderingInfo{
             {},
             1u,
-            &swapchainSurfaceFormat.format
+            &swapchainSurfaceFormat.format,
+            vk::Format::eD32Sfloat
         };
 
         vk::StructureChain<vk::GraphicsPipelineCreateInfo ,vk::PipelineRenderingCreateInfo>
@@ -570,6 +572,7 @@ private:
             .setImageView(*swapchainImageViews[imageIndex])
             .setImageLayout(vk::ImageLayout::eColorAttachmentOptimal)
             .setLoadOp(vk::AttachmentLoadOp::eClear) // clear image after use
+            .setStoreOp(vk::AttachmentStoreOp::eStore)
             .setClearValue(vk::ClearValue{vk::ClearColorValue{std::array<float, 4>{0.f, 0.f, 0.f, 1.f}}});
 
         vk::RenderingAttachmentInfo depthAttachmentInfo{};
@@ -593,7 +596,7 @@ private:
 
         // Since the pipeline object does not bake the below values in and are dynamic, we should specify them here
         vk::Viewport viewport{
-            0.f, 1.f,
+            0.f, 0.f,
             static_cast<f32>(swapchainExtent.width),
             static_cast<f32>(swapchainExtent.height),
             0.f, 1.f
@@ -683,6 +686,43 @@ private:
     }
 
 private:
+    auto transitionDepthImageLayout() -> void {
+        vk::CommandBufferAllocateInfo cmdInfo{};
+        cmdInfo
+            .setCommandPool(commandPool_)
+            .setLevel(vk::CommandBufferLevel::ePrimary)
+            .setCommandBufferCount(1u);
+
+        auto cmd = std::move(vk::raii::CommandBuffers(device_, cmdInfo).front());
+        cmd.begin(vk::CommandBufferBeginInfo{vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
+
+        vk::ImageMemoryBarrier2 barrier{};
+        barrier
+            .setSrcStageMask(vk::PipelineStageFlagBits2::eTopOfPipe)
+            .setDstStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests)
+            .setSrcAccessMask(vk::AccessFlags2{})
+            .setDstAccessMask(
+                vk::AccessFlagBits2::eDepthStencilAttachmentRead |
+                vk::AccessFlagBits2::eDepthStencilAttachmentWrite
+            )
+            .setOldLayout(vk::ImageLayout::eUndefined)
+            .setNewLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal)
+            .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+            .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+            .setImage(depthImage_)
+        .setSubresourceRange({vk::ImageAspectFlagBits::eDepth, 0, 1, 0, 1});
+
+        vk::DependencyInfo depInfo{};
+        depInfo.setImageMemoryBarriers(barrier);
+        cmd.pipelineBarrier2(depInfo);
+        cmd.end();
+
+        vk::SubmitInfo submitInfo{};
+        submitInfo.setCommandBuffers(*cmd);
+        queue_.submit(submitInfo);
+        queue_.waitIdle();
+    }
+   
     auto findMemoryType(u32 typeBits, vk::MemoryPropertyFlags properties) -> u32 {
         vk::PhysicalDeviceMemoryProperties memProps = physicalDevice_.getMemoryProperties();
 
@@ -694,6 +734,7 @@ private:
         }
         throw std::runtime_error("Failed to find find suitable memory type");
     }
+
     // We use this function to transition the image before and after rendering
     auto transition_image_layout(
         u32 imageIndex,
