@@ -377,6 +377,46 @@ private:
         std::println(stderr, "[LOG] Image views created!");
     }
 
+    auto createDepthImage() -> void {
+        vk::ImageCreateInfo depthImageInfo{};
+        depthImageInfo
+            .setImageType(vk::ImageType::e2D)
+            .setFormat(vk::Format::eD32Sfloat)
+            .setExtent({swapchainExtent.width, swapchainExtent.height, 1})
+            .setMipLevels(1)
+            .setArrayLayers(1)
+            .setSamples(vk::SampleCountFlagBits::e1)
+            .setTiling(vk::ImageTiling::eOptimal) // eOptimal used for only GPU images. Lets the GPU use whatever internal layout is fastest for its texture units
+            .setUsage(vk::ImageUsageFlagBits::eDepthStencilAttachment);
+        
+        depthImage_ = vk::raii::Image(device_, depthImageInfo);
+
+        vk::MemoryRequirements memReqs = depthImage_.getMemoryRequirements();
+        vk::MemoryAllocateInfo allocInfo{};
+        allocInfo
+            .setAllocationSize(memReqs.size)
+            .setMemoryTypeIndex(findMemoryType(
+                memReqs.memoryTypeBits,
+                vk::MemoryPropertyFlagBits::eDeviceLocal
+            ));
+
+        depthMemory_ = vk::raii::DeviceMemory(device_, allocInfo);
+        depthImage_.bindMemory(depthMemory_, 0);
+    }
+
+    auto createDepthImageView() -> void {
+        vk::ImageViewCreateInfo viewInfo{};
+        viewInfo
+            .setImage(depthImage_)
+            .setViewType(vk::ImageViewType::e2D)
+            .setFormat(vk::Format::eD32Sfloat)
+            .setSubresourceRange({
+                vk::ImageAspectFlagBits::eDepth,
+                0, 1, 0, 1
+            });
+        depthImageView_ = vk::raii::ImageView(device_, viewInfo);
+    }
+
     auto createGraphicsPipeline() -> void {
         std::vector<char> shaderCode = load_shader("../shaders/slang.spv");
         vk::raii::ShaderModule shaderModule = createShaderModule(shaderCode);
@@ -451,6 +491,14 @@ private:
             .setPushConstantRangeCount(0u);
         pipelineLayout_ = vk::raii::PipelineLayout(device_, pipelineLayoutInfo);
 
+        vk::PipelineDepthStencilStateCreateInfo depthStencil{};
+        depthStencil
+            .setDepthTestEnable(vk::True)
+            .setDepthWriteEnable(vk::True)
+            .setDepthCompareOp(vk::CompareOp::eLess)
+            .setDepthBoundsTestEnable(vk::False)
+            .setStencilTestEnable(vk::False);
+
         vk::GraphicsPipelineCreateInfo graphicsPipelineInfo{};
         graphicsPipelineInfo
             .setStageCount(2u)
@@ -461,6 +509,7 @@ private:
             .setPRasterizationState(&rasterizer)
             .setPMultisampleState(&multisampling)
             .setPColorBlendState(&colorBlending)
+            .setPDepthStencilState(&depthStencil)
             .setPDynamicState(&dynamicState)
             .setLayout(pipelineLayout_)
             .setRenderPass(nullptr);
@@ -521,6 +570,8 @@ private:
             .setLoadOp(vk::AttachmentLoadOp::eClear) // clear image after use
             .setClearValue(vk::ClearValue{vk::ClearColorValue{std::array<float, 4>{0.f, 0.f, 0.f, 1.f}}});
 
+        vk::RenderingAttachmentInfo depthAttachmentInfo{};
+
         vk::RenderingInfo renderingInfo{};
         renderingInfo
             .setRenderArea(vk::Rect2D{{0, 0}, swapchainExtent})
@@ -559,44 +610,7 @@ private:
         commandBuffer_.end();
     }
 
-    // We use this function to transition the image before and after rendering
-    auto transition_image_layout(
-        u32 imageIndex,
-        vk::ImageLayout         old_layout,      vk::ImageLayout         new_layout,
-        vk::AccessFlags2        src_access_mask, vk::AccessFlags2        dst_access_mask,
-        vk::PipelineStageFlags2 src_stage_mask,  vk::PipelineStageFlags2 dst_stage_mask
-    ) -> void {
-        /* before we start rendering to an image, we need to transition its layout to one that is suitable for rendeing*/
-        vk::ImageMemoryBarrier2 barrier{};
-        barrier
-            .setSrcStageMask(src_stage_mask)
-            .setDstStageMask(dst_stage_mask)
-            .setSrcAccessMask(src_access_mask)
-            .setDstAccessMask(dst_access_mask)
-            .setOldLayout(old_layout)
-            .setNewLayout(new_layout)
-            .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-            .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-            .setImage(swapchainImages[imageIndex])
-            .setSubresourceRange({
-                vk::ImageAspectFlagBits::eColor,
-                0,
-                1,
-                0,
-                1
-            });
-
-        vk::DependencyInfo dependencyInfo{};
-        dependencyInfo
-            .setDependencyFlags({})
-            .setImageMemoryBarrierCount(1u)
-            .setPImageMemoryBarriers(&barrier);
-
-        commandBuffer_.pipelineBarrier2(dependencyInfo);
-
-        
-    }
-
+    
     auto createSyncObjects() -> void {
         vk::SemaphoreCreateInfo semaphoreInfo{};
         vk::FenceCreateInfo fenceInfo{};
@@ -660,6 +674,54 @@ private:
     }
 
 private:
+    auto findMemoryType(u32 typeBits, vk::MemoryPropertyFlags properties) -> u32 {
+        vk::PhysicalDeviceMemoryProperties memProps = physicalDevice_.getMemoryProperties();
+
+        for (u32 i = 0; i < memProps.memoryTypeCount; ++i) {
+            if ((typeBits & (1 << i)) && 
+                (memProps.memoryTypes[i].propertyFlags & properties) == properties) {
+                return i;
+            }
+        }
+        throw std::runtime_error("Failed to find find suitable memory type");
+    }
+    
+    // We use this function to transition the image before and after rendering
+    auto transition_image_layout(
+        u32 imageIndex,
+        vk::ImageLayout         old_layout,      vk::ImageLayout         new_layout,
+        vk::AccessFlags2        src_access_mask, vk::AccessFlags2        dst_access_mask,
+        vk::PipelineStageFlags2 src_stage_mask,  vk::PipelineStageFlags2 dst_stage_mask
+    ) -> void {
+        /* before we start rendering to an image, we need to transition its layout to one that is suitable for rendeing*/
+        vk::ImageMemoryBarrier2 barrier{};
+        barrier
+            .setSrcStageMask(src_stage_mask)
+            .setDstStageMask(dst_stage_mask)
+            .setSrcAccessMask(src_access_mask)
+            .setDstAccessMask(dst_access_mask)
+            .setOldLayout(old_layout)
+            .setNewLayout(new_layout)
+            .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+            .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
+            .setImage(swapchainImages[imageIndex])
+            .setSubresourceRange({
+                vk::ImageAspectFlagBits::eColor,
+                0,
+                1,
+                0,
+                1
+            });
+
+        vk::DependencyInfo dependencyInfo{};
+        dependencyInfo
+            .setDependencyFlags({})
+            .setImageMemoryBarrierCount(1u)
+            .setPImageMemoryBarriers(&barrier);
+
+        commandBuffer_.pipelineBarrier2(dependencyInfo);
+    }
+
     static auto load_shader(std::string const& filename) -> std::vector<char> {
         std::ifstream file(filename, std::ios::ate | std::ios::binary);
         if (!file.is_open()) {
@@ -726,6 +788,10 @@ private:
     vk::Extent2D swapchainExtent{};
 
     std::vector<vk::raii::ImageView> swapchainImageViews{};
+    vk::raii::Image depthImage_{nullptr};
+    vk::raii::DeviceMemory depthMemory_{nullptr};
+    vk::raii::ImageView depthImageView_{nullptr};
+
     vk::raii::PipelineLayout pipelineLayout_{nullptr};
     vk::raii::Pipeline graphicsPipeline_{nullptr};
 
