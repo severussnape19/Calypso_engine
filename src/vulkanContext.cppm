@@ -18,6 +18,9 @@ public:
     VulkanContext(bool enableValidation)
     : enableValidation_(enableValidation) {
         createInstance();
+        createDebugMessenger();
+        pickPhysicalDevice();
+        createLogicalDevice();
     }
 
     ~VulkanContext() = default;
@@ -26,6 +29,9 @@ public:
     auto operator=(VulkanContext const&) = delete;
 
     [[nodiscard]] auto getInstance() const noexcept -> vk::raii::Instance const& { return instance_; }
+    [[nodiscard]] auto getPhysicalDevice() const noexcept -> vk::raii::PhysicalDevice const& { return physicalDevice_; }
+    [[nodiscard]] auto getLogicalDevice() const noexcept -> vk::raii::Device const& { return device_; }
+    [[nodiscard]] auto getQueue() const noexcept -> vk::raii::Queue const& { return queue_; }
 private:
     auto createInstance() -> void {
         // The vulkan context serves as the initial bootstrapping object that manages lifetimes of the dynamic loader
@@ -54,8 +60,8 @@ private:
 
         std::vector<vk::LayerProperties> availableLayers = context_.enumerateInstanceLayerProperties();
 
-        if (!std::ranges::all_of(layers_, [&availableLayers](std::string_view required) {
-            return std::ranges::any_of(availableLayers, [required](std::string_view available) {
+        if (!std::ranges::all_of(layers_, [&availableLayers](std::string_view required) -> bool {
+            return std::ranges::any_of(availableLayers, [required](std::string_view available) -> bool {
                 return required == available;
             }, &vk::LayerProperties::layerName);
         })) {
@@ -72,6 +78,48 @@ private:
 
         instance_ = vk::raii::Instance(context_, createInfo);
         std::println(stderr, "[LOG] Instance created!");
+    }
+
+    static VKAPI_ATTR auto VKAPI_CALL debugCallback(
+        vk::DebugUtilsMessageSeverityFlagBitsEXT      messageSeverity,
+        vk::DebugUtilsMessageTypeFlagsEXT             messageTypes,
+        const vk::DebugUtilsMessengerCallbackDataEXT* pCallbackData,
+        void*                                       pUserData
+    ) -> vk::Bool32 {
+        if (messageSeverity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning ||
+            messageSeverity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eError   ||
+            messageSeverity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo    ||
+            messageTypes    == vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation ||
+            messageTypes    == vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance ||
+            messageTypes    == vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral ) {
+
+            std::println(stderr, "[VULKAN] {}", pCallbackData->pMessage);
+        }
+        return vk::False; // apparently this vk::false thing exists for no reason?
+    }
+
+    auto createDebugMessenger() -> void {
+        if (!enableValidation_) return;
+
+        vk::Flags<vk::DebugUtilsMessageSeverityFlagBitsEXT> severityFlags =
+            vk::DebugUtilsMessageSeverityFlagBitsEXT::eError |
+            vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo |
+            vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning;
+
+        vk::Flags<vk::DebugUtilsMessageTypeFlagBitsEXT> messageType =
+            vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation |
+            vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
+            vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation;
+
+        vk::DebugUtilsMessengerCreateInfoEXT createInfo {};
+        createInfo
+            .setFlags({})
+            .setMessageSeverity(severityFlags)
+            .setMessageType(messageType)
+            .setPfnUserCallback(&debugCallback);
+
+        debugMessenger_ = vk::raii::DebugUtilsMessengerEXT(instance_, createInfo);
+        std::println(stderr, "[LOG] DebugMessenger created!");
     }
 
     auto pickPhysicalDevice() -> void {
@@ -110,7 +158,11 @@ private:
             vk::PhysicalDeviceFeatures2,
             vk::PhysicalDeviceVulkan11Features,
             vk::PhysicalDeviceVulkan12Features,
-            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>(); // allows me to change culling, depth and topology on the fly rather than having me create new pipeline
+            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
+
+        // extendedDynamicState - allows me to change culling, depth and topology on the fly rather than having me create new pipeline through the frame buffer
+        // shaderDrawParameters - for GPU-driven rendering / batching
+        // dynamicRendering - Cuts out needing renderpass and framebuffers
 
         bool supportsRequiredFeatures =
             features.template get<vk::PhysicalDeviceVulkan11Features>().shaderDrawParameters &&
@@ -123,15 +175,70 @@ private:
         return false;
     }
 
+    auto createLogicalDevice() -> void {
+        // Since I now have a physical device, I create a logical device out of it and pull out required queues
+        auto queueFamilyProperties = physicalDevice_.getQueueFamilyProperties();
+
+        for (u32 i = 0; i < queueFamilyProperties.size(); i++) {
+            // Check for presentation capability in swapchain module
+            if (queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eCompute &&
+                queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eGraphics)
+            {
+                queueIndex_ = i;
+                break;
+            }
+        }
+
+        if (queueIndex_ == ~0) {
+            throw std::runtime_error("[ERR] Could not find queues with required props");
+        }
+
+        std::vector<f32> queuePriorities = {0.5f};
+        vk::DeviceQueueCreateInfo queueCreateInfo{};
+        queueCreateInfo
+            .setQueueFamilyIndex(queueIndex_)
+            .setQueueCount(1u)
+            .setPQueuePriorities(queuePriorities.data());
+
+        vk::StructureChain<
+            vk::PhysicalDeviceFeatures2,
+            vk::PhysicalDeviceVulkan11Features,
+            vk::PhysicalDeviceVulkan13Features,
+            vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT> featureChain{};
+
+        featureChain.template get<vk::PhysicalDeviceVulkan11Features>().setShaderDrawParameters(vk::True);
+        featureChain.template get<vk::PhysicalDeviceVulkan13Features>().setDynamicRendering(vk::True);
+        // Makes CPU side code much less error prone. gives pipelineBarrier2, submitInfo2, semaphoreInfo
+        featureChain.template get<vk::PhysicalDeviceVulkan13Features>().setSynchronization2(vk::True);
+        featureChain.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().setExtendedDynamicState(vk::True);
+
+        vk::DeviceCreateInfo deviceCreateInfo{};
+        deviceCreateInfo
+            .setQueueCreateInfoCount(1u)
+            .setPQueueCreateInfos(&queueCreateInfo)
+            .setPNext(&featureChain)
+            .setEnabledExtensionCount(static_cast<u32>(deviceExtensions_.size()))
+            .setPpEnabledExtensionNames(deviceExtensions_.data());
+
+        device_ = vk::raii::Device(physicalDevice_, deviceCreateInfo);
+        queue_  = vk::raii::Queue(device_, queueIndex_, 0);
+        std::println(stderr, "[LOG] Created physical device and queue!");
+    }
+
 private:
     vk::raii::Context context_{};
-    vk::raii::Instance       instance_       = nullptr;
-    vk::raii::PhysicalDevice physicalDevice_ = nullptr;
-    vk::raii::Queue          queue_          = nullptr;
-    vk::raii::CommandPool    commandPool_    = nullptr;
-    u32 queueIndex_ = 0;
+    vk::raii::Instance               instance_       = nullptr;
+    vk::raii::DebugUtilsMessengerEXT debugMessenger_ = nullptr;
+    vk::raii::PhysicalDevice         physicalDevice_ = nullptr;
+    vk::raii::Device                 device_         = nullptr;
+    vk::raii::Queue                  queue_          = nullptr;
+    vk::raii::CommandPool            commandPool_    = nullptr;
+    u32 queueIndex_ = ~0;
 
-    std::vector<char const*> layers_{"VK_LAYER_KHRONOS_validation"};
-    std::vector<char const*> extensions_{};
     bool enableValidation_{};
+    std::vector<char const*> layers_ = enableValidation_ ?
+        std::vector<char const*>{"VK_LAYER_KHRONOS_validation"} : std::vector<char const*>{};
+
+    std::vector<char const*> extensions_{};
+    std::vector<char const*> deviceExtensions_{vk::KHRSwapchainExtensionName};
 };
