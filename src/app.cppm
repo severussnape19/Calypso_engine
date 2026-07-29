@@ -180,7 +180,7 @@ private:
            physical_dev.template getFeatures2<vk::PhysicalDeviceFeatures2,
                                               vk::PhysicalDeviceVulkan11Features,
                                               vk::PhysicalDeviceVulkan13Features,
-                                              vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
+                                              vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>(); // allows me to change culling, depth and topology on the fly rather than having me create new pipeline
        bool supportsRequiredFeatures =
            features.template get<vk::PhysicalDeviceVulkan11Features>().shaderDrawParameters &&
            features.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
@@ -391,7 +391,7 @@ private:
             .setSamples(vk::SampleCountFlagBits::e1)
             .setTiling(vk::ImageTiling::eOptimal) // eOptimal used for only GPU images. Lets the GPU use whatever internal layout is fastest for its texture units
             .setUsage(vk::ImageUsageFlagBits::eDepthStencilAttachment);
-        
+
         depthImage_ = vk::raii::Image(device_, depthImageInfo);
 
         vk::MemoryRequirements memReqs = depthImage_.getMemoryRequirements();
@@ -559,12 +559,12 @@ private:
         commandBuffer_.begin(beginInfo);
 
         transition_image_layout(
-            imageIndex, 
-            vk::ImageLayout::eUndefined, 
-            vk::ImageLayout::eColorAttachmentOptimal, 
-            vk::AccessFlags2{}, 
-            vk::AccessFlags2{vk::AccessFlagBits2::eColorAttachmentWrite}, 
-            vk::PipelineStageFlags2{vk::PipelineStageFlagBits2::eTopOfPipe}, 
+            imageIndex,
+            vk::ImageLayout::eUndefined,
+            vk::ImageLayout::eColorAttachmentOptimal,
+            vk::AccessFlags2{},
+            vk::AccessFlags2{vk::AccessFlagBits2::eColorAttachmentWrite},
+            vk::PipelineStageFlags2{vk::PipelineStageFlagBits2::eTopOfPipe},
             vk::PipelineStageFlags2{vk::PipelineStageFlagBits2::eColorAttachmentOutput});
 
         vk::RenderingAttachmentInfo colorAttachmentInfo{};
@@ -611,23 +611,23 @@ private:
         commandBuffer_.endRendering();
 
         transition_image_layout(
-            imageIndex, 
-            vk::ImageLayout::eColorAttachmentOptimal, 
-            vk::ImageLayout::ePresentSrcKHR, 
+            imageIndex,
+            vk::ImageLayout::eColorAttachmentOptimal,
+            vk::ImageLayout::ePresentSrcKHR,
             vk::AccessFlags2{vk::AccessFlagBits2::eColorAttachmentWrite},
-            vk::AccessFlags2{}, 
-            vk::PipelineStageFlags2{vk::PipelineStageFlagBits2::eColorAttachmentOutput}, 
+            vk::AccessFlags2{},
+            vk::PipelineStageFlags2{vk::PipelineStageFlagBits2::eColorAttachmentOutput},
             vk::PipelineStageFlags2{vk::PipelineStageFlagBits2::eBottomOfPipe});
-        
+
         commandBuffer_.end();
     }
 
-    
+
     auto createSyncObjects() -> void {
         vk::SemaphoreCreateInfo semaphoreInfo{};
         vk::FenceCreateInfo fenceInfo{};
         fenceInfo.setFlags(vk::FenceCreateFlagBits::eSignaled);
-        
+
         for (usize i = 0; i < swapchainImages.size(); ++i) {
             imageAvailableSemaphores_.emplace_back(device_, semaphoreInfo);
         }
@@ -722,12 +722,12 @@ private:
         queue_.submit(submitInfo);
         queue_.waitIdle();
     }
-   
+
     auto findMemoryType(u32 typeBits, vk::MemoryPropertyFlags properties) -> u32 {
         vk::PhysicalDeviceMemoryProperties memProps = physicalDevice_.getMemoryProperties();
 
         for (u32 i = 0; i < memProps.memoryTypeCount; ++i) {
-            if ((typeBits & (1 << i)) && 
+            if ((typeBits & (1 << i)) &&
             (memProps.memoryTypes[i].propertyFlags & properties) == properties) {
                 return i;
             }

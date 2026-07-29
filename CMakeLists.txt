@@ -15,6 +15,7 @@ target_sources(app
     FILE_SET CXX_MODULES FILES
       src/types.cppm
       src/app.cppm
+      src/vulkanContext.cppm
 )
 
 target_include_directories(app PRIVATE
