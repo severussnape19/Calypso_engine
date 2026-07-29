@@ -24,6 +24,7 @@ public:
         createDebugMessenger();
         pickPhysicalDevice();
         createLogicalDevice();
+        createCommandPool();
     }
 
     ~VulkanContext() = default;
@@ -229,6 +230,16 @@ private:
         std::println(stderr, "[LOG] Created physical device and queue!");
     }
 
+    auto createCommandPool() -> void {
+        vk::CommandPoolCreateInfo createInfo{};
+        createInfo
+            .setQueueFamilyIndex(queueIndex_)
+            .setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer);
+
+        commandPool_ = vk::raii::CommandPool(device_, createInfo);
+        std::println(stderr, "[LOG] Created command pool!");
+    }
+
 private:
     vk::raii::Context context_{};
     vk::raii::Instance               instance_       = nullptr;
@@ -236,7 +247,7 @@ private:
     vk::raii::PhysicalDevice         physicalDevice_ = nullptr;
     vk::raii::Device                 device_         = nullptr;
     vk::raii::Queue                  queue_          = nullptr;
-    //vk::raii::CommandPool            commandPool_    = nullptr;
+    vk::raii::CommandPool            commandPool_    = nullptr;
     u32 queueIndex_ = ~0;
 
     bool enableValidation_{};
