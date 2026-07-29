@@ -10,13 +10,16 @@ module;
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_raii.hpp>
 
-export module device;
+export module VulkanContext;
 import types;
 
 export class VulkanContext {
 public:
     VulkanContext(bool enableValidation)
-    : enableValidation_(enableValidation) {
+    : enableValidation_(enableValidation)
+    , layers_(enableValidation_ ?
+            std::vector<char const*>{"VK_LAYER_KHRONOS_validation"} : std::vector<char const*>{})
+    {
         createInstance();
         createDebugMessenger();
         pickPhysicalDevice();
@@ -48,6 +51,7 @@ private:
         auto glfwInstanceExtensions = glfwGetRequiredInstanceExtensions(&ext_count);
         extensions_.assign(glfwInstanceExtensions, glfwInstanceExtensions + ext_count);
         extensions_.push_back(vk::EXTDebugUtilsExtensionName);
+        extensions_.push_back("VK_KHR_surface");
         std::vector<vk::ExtensionProperties> availableExtensions = context_.enumerateInstanceExtensionProperties();
 
         if (!std::ranges::all_of(extensions_, [&availableExtensions](std::string_view required) -> bool {
@@ -95,7 +99,7 @@ private:
 
             std::println(stderr, "[VULKAN] {}", pCallbackData->pMessage);
         }
-        return vk::False; // apparently this vk::false thing exists for no reason?
+        return vk::False; // controls weather the vulkan call that triggered it got aborted or not
     }
 
     auto createDebugMessenger() -> void {
@@ -147,17 +151,17 @@ private:
         std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
 
         bool hasComputeBit = std::ranges::any_of(queueFamilyProperties, [](auto const& qfp) {
-            return qfp.queueFlags == vk::QueueFlagBits::eCompute;
+            return !!(qfp.queueFlags & vk::QueueFlagBits::eCompute);
         });
 
         bool hasGraphicsBit = std::ranges::any_of(queueFamilyProperties, [](auto const& qfp) {
-            return qfp.queueFlags == vk::QueueFlagBits::eGraphics;
+            return !!(qfp.queueFlags & vk::QueueFlagBits::eGraphics);
         });
 
         auto features = physicalDevice.template getFeatures2<
             vk::PhysicalDeviceFeatures2,
             vk::PhysicalDeviceVulkan11Features,
-            vk::PhysicalDeviceVulkan12Features,
+            vk::PhysicalDeviceVulkan13Features,
             vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
 
         // extendedDynamicState - allows me to change culling, depth and topology on the fly rather than having me create new pipeline through the frame buffer
@@ -216,7 +220,7 @@ private:
         deviceCreateInfo
             .setQueueCreateInfoCount(1u)
             .setPQueueCreateInfos(&queueCreateInfo)
-            .setPNext(&featureChain)
+            .setPNext(&featureChain.template get<vk::PhysicalDeviceFeatures2>())
             .setEnabledExtensionCount(static_cast<u32>(deviceExtensions_.size()))
             .setPpEnabledExtensionNames(deviceExtensions_.data());
 
@@ -232,13 +236,11 @@ private:
     vk::raii::PhysicalDevice         physicalDevice_ = nullptr;
     vk::raii::Device                 device_         = nullptr;
     vk::raii::Queue                  queue_          = nullptr;
-    vk::raii::CommandPool            commandPool_    = nullptr;
+    //vk::raii::CommandPool            commandPool_    = nullptr;
     u32 queueIndex_ = ~0;
 
     bool enableValidation_{};
-    std::vector<char const*> layers_ = enableValidation_ ?
-        std::vector<char const*>{"VK_LAYER_KHRONOS_validation"} : std::vector<char const*>{};
-
+    std::vector<char const*> layers_{};
     std::vector<char const*> extensions_{};
     std::vector<char const*> deviceExtensions_{vk::KHRSwapchainExtensionName};
 };

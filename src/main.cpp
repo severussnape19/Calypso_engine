@@ -2,8 +2,9 @@
 
 import types;
 import app;
+import VulkanContext;
 
 auto main() -> i32 {
-    App{}.run();
+    VulkanContext(true);
     return EXIT_SUCCESS;
 }
