@@ -13,6 +13,8 @@ module;
 export module VulkanContext;
 import types;
 
+/* This class owns all the mostly stable / static objects i.e things that exist once for the lifetime of the app.
+ * Instance, physical device, logical device, debugMessenger creation, queue picking and command pool creation */
 export class VulkanContext {
 public:
     VulkanContext(bool enableValidation)
@@ -36,6 +38,8 @@ public:
     [[nodiscard]] auto getPhysicalDevice() const noexcept -> vk::raii::PhysicalDevice const& { return physicalDevice_; }
     [[nodiscard]] auto getLogicalDevice() const noexcept -> vk::raii::Device const& { return device_; }
     [[nodiscard]] auto getQueue() const noexcept -> vk::raii::Queue const& { return queue_; }
+    [[nodiscard]] auto getCommandpool() const noexcept -> vk::raii::CommandPool const& { return commandPool_; }
+    [[nodiscard]] auto getQueueIndex() const noexcept -> u32 { return queueIndex_; }
 private:
     auto createInstance() -> void {
         // The vulkan context serves as the initial bootstrapping object that manages lifetimes of the dynamic loader
