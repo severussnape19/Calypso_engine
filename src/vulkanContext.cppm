@@ -34,12 +34,13 @@ public:
     VulkanContext(VulkanContext const&) = delete;
     auto operator=(VulkanContext const&) = delete;
 
-    [[nodiscard]] auto getInstance() const noexcept -> vk::raii::Instance const& { return instance_; }
+    [[nodiscard]] auto getInstance()       const noexcept -> vk::raii::Instance const&       { return instance_; }
     [[nodiscard]] auto getPhysicalDevice() const noexcept -> vk::raii::PhysicalDevice const& { return physicalDevice_; }
-    [[nodiscard]] auto getLogicalDevice() const noexcept -> vk::raii::Device const& { return device_; }
-    [[nodiscard]] auto getQueue() const noexcept -> vk::raii::Queue const& { return queue_; }
-    [[nodiscard]] auto getCommandpool() const noexcept -> vk::raii::CommandPool const& { return commandPool_; }
-    [[nodiscard]] auto getQueueIndex() const noexcept -> u32 { return queueIndex_; }
+    [[nodiscard]] auto getLogicalDevice()  const noexcept -> vk::raii::Device const&         { return device_; }
+    [[nodiscard]] auto getLogicalDevice()  noexcept -> vk::raii::Device&                     { return device_; }
+    [[nodiscard]] auto getQueue()          const noexcept -> vk::raii::Queue const&          { return queue_; }
+    [[nodiscard]] auto getCommandpool()    const noexcept -> vk::raii::CommandPool const&    { return commandPool_; }
+    [[nodiscard]] auto getQueueIndex()     const noexcept -> u32                             { return queueIndex_; }
 private:
     auto createInstance() -> void {
         // The vulkan context serves as the initial bootstrapping object that manages lifetimes of the dynamic loader

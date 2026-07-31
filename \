@@ -7,7 +7,6 @@ module;
 #include <print>
 #include <stdexcept>
 #include <tuple>
-#include <utility>
 #include <vulkan/vulkan_core.h>
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -20,27 +19,16 @@ import types;
 
 export class Swapchain {
 public:
-    explicit Swapchain(VulkanContext const& context, GLFWwindow* window) noexcept
+    explicit Swapchain(VulkanContext const& context, GLFWwindow* window)
         : context_(context)
         , window_(window) {
 
         createSurface();
         createSwapchain();
         createImageViews();
-        createDepthImage();
-        createDepthImageView();
-        depthLayoutTransition();
     }
 
-    Swapchain(Swapchain const& o) = delete;
-    auto operator=(Swapchain const& o) -> Swapchain& = delete;
-
-    [[nodiscard]] auto getExtent()         const noexcept -> vk::Extent2D                            { return swapchainExtent_; }
-    [[nodiscard]] auto getSurfaceFormat()  const noexcept -> vk::SurfaceFormatKHR                    { return surfaceFormat_; }
-    [[nodiscard]] auto getSwapchain()      const noexcept -> vk::raii::SwapchainKHR const&           { return swapchain_; }
-    [[nodiscard]] auto getImages()         const noexcept -> std::vector<vk::Image> const&           { return swapchainImages_; }
-    [[nodiscard]] auto getImageViews()     const noexcept -> std::vector<vk::raii::ImageView> const& { return swapchainImageViews_; }
-    [[nodiscard]] auto getDepthImageView() const noexcept -> vk::raii::ImageView const&              { return depthImageView_; }
+    Swapchain(Swapchain&& o) noexcept
 private:
     auto createSurface() -> void {
         VkSurfaceKHR _surface = VK_NULL_HANDLE;
@@ -115,11 +103,7 @@ private:
             .setMinImageCount(minImageCount)
             .setImageFormat(surfaceFormat_.format)
             .setImageColorSpace(surfaceFormat_.colorSpace)
-            //.setImageExtent(swapchainExtent_)
-            .setImageExtent({
-                swapchainExtent_.width,
-                swapchainExtent_.height
-            })
+            .setImageExtent(swapchainExtent_)
             .setImageArrayLayers(1u)
             .setImageUsage(vk::ImageUsageFlagBits::eColorAttachment)
             .setImageSharingMode(vk::SharingMode::eExclusive)
@@ -131,6 +115,7 @@ private:
             .setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque);
             // queueIndex and ptr are to be used when sharing mode is concurrent
 
+        std::println("Extent: {} | {}", swapchainExtent_.width, swapchainExtent_.height);
         swapchain_       = vk::raii::SwapchainKHR(context_.getLogicalDevice(), swapchainCreateInfo);
         swapchainImages_ = swapchain_.getImages();
         std::println(stderr, "[LOG] Created swapchain!");
@@ -159,111 +144,7 @@ private:
     }
 
     auto createDepthImage() -> void {
-        vk::ImageCreateInfo createInfo{};
-        createInfo
-            .setImageType(vk::ImageType::e2D)
-            .setFormat(vk::Format::eD32Sfloat)
-            .setUsage(vk::ImageUsageFlagBits::eDepthStencilAttachment)
-            .setArrayLayers(1u)
-            .setMipLevels(1u)
-            .setSamples(vk::SampleCountFlagBits::e1)
-            .setTiling(vk::ImageTiling::eOptimal)
-            .setExtent({swapchainExtent_.width, swapchainExtent_.height, 1u}); // vulkan expects depth to be greater than 1
 
-        depthImage_ = vk::raii::Image(context_.getLogicalDevice(), createInfo);
-        /* Presentation images / images in swap chain do not require us to explicitly create memory for them
-          The swap chain and the WSI manage the memory requirements. However, for the depth buffer, it
-          is an individual buffer we create seperately so we need to allocate memory for it in the device and
-          ofc bind it to that resource */
-
-        vk::MemoryRequirements memReqs = depthImage_.getMemoryRequirements();
-        vk::MemoryAllocateInfo allocInfo{};
-        allocInfo
-            .setAllocationSize(memReqs.size)
-            .setMemoryTypeIndex(findMemoryType(
-                memReqs.memoryTypeBits,
-                vk::MemoryPropertyFlagBits::eDeviceLocal
-            )); // since depth buffer is gonna reside in the device
-
-        depthImageMemory_ = vk::raii::DeviceMemory(context_.getLogicalDevice(), allocInfo);
-        depthImage_.bindMemory(depthImageMemory_, 0);
-        std::println(stderr, "[LOG] Created Depth Image!");
-    }
-
-    auto createDepthImageView() -> void {
-        vk::ImageViewCreateInfo createInfo{};
-        createInfo
-            .setImage(depthImage_)
-            .setFormat(vk::Format::eD32Sfloat)
-            .setViewType(vk::ImageViewType::e2D)
-            .setSubresourceRange({
-                vk::ImageAspectFlagBits::eDepth,
-                0,
-                1,
-                0,
-                1
-            });
-        depthImageView_ = vk::raii::ImageView(context_.getLogicalDevice(), createInfo);
-        std::println(stderr, "[LOG] Created Depth image view!");
-    }
-
-    auto findMemoryType(u32 typeBits, vk::MemoryPropertyFlags props) -> u32 {
-        vk::PhysicalDeviceMemoryProperties memProps = context_.getPhysicalDevice().getMemoryProperties();
-
-        for (u32 i = 0; i < memProps.memoryTypeCount; i++) {
-            if ((typeBits & (1 << i)) && (memProps.memoryTypes[i].propertyFlags & props) == props) {
-                return i;
-            }
-        }
-        throw std::runtime_error("[ERR] Failed to find a suitable memory type!");
-    }
-
-    auto depthLayoutTransition() -> void {
-        /* Before an image can be presented, it must be in the correct layout. This state is the VK_IMAGE_LAYOUT_PRESENT_SRC_KHR layout.
-         * Images are transitioned from layout to layout using image memory barriers.
-         * The mechanism for changing the layout of an image is known as a `pipeline barrier`, or simply a
-           barrier. A barrier not only serves as a means to change the layout of a resource but can also
-           synchronize access to that resource by different stages in the Vulkan pipeline and even by different
-           queues running concurrently on the same device. */
-        vk::CommandBufferAllocateInfo allocInfo{};
-        allocInfo
-            .setCommandPool(context_.getCommandpool())
-            .setLevel(vk::CommandBufferLevel::ePrimary)
-            .setCommandBufferCount(1u);
-
-        vk::raii::CommandBuffer cmdBuf = std::move(vk::raii::CommandBuffers(context_.getLogicalDevice(), allocInfo).front());
-        cmdBuf.begin(vk::CommandBufferBeginInfo{ vk::CommandBufferUsageFlagBits::eOneTimeSubmit });
-
-        vk::ImageMemoryBarrier2 barrier{};
-        barrier
-            .setImage(depthImage_)
-            .setSrcStageMask(vk::PipelineStageFlagBits2::eTopOfPipe)
-            .setDstStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests)
-            .setSrcAccessMask(vk::AccessFlags2{})
-            .setDstAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
-            .setOldLayout(vk::ImageLayout::eUndefined)
-            .setNewLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal)
-            .setSubresourceRange({
-                vk::ImageAspectFlagBits::eDepth,
-                0,
-                1,
-                0,
-                1
-            })
-            .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-            .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
-
-        vk::DependencyInfo depInfo{};
-        depInfo.setImageMemoryBarriers(barrier);
-        cmdBuf.pipelineBarrier2(depInfo);
-        cmdBuf.end();
-
-        vk::SubmitInfo submitInfo{};
-        submitInfo.setCommandBuffers(*cmdBuf);
-        context_.getQueue().submit(submitInfo);
-        context_.getQueue().waitIdle();
-
-        std::println(stderr, "[LOG] Depth buffer layout transitioned!");
     }
 private:
     VulkanContext const& context_;
@@ -273,11 +154,7 @@ private:
     vk::raii::SurfaceKHR   surface_   = nullptr;
     vk::raii::SwapchainKHR swapchain_ = nullptr;
     std::vector<vk::Image> swapchainImages_{};
-    std::vector<vk::raii::ImageView> swapchainImageViews_{};
-
-    vk::raii::Image depthImage_ = nullptr;
-    vk::raii::DeviceMemory depthImageMemory_ = nullptr;
-    vk::raii::ImageView depthImageView_ = nullptr;
+    std::vector<vk::ImageView> swapchainImageViews_{};
 
     vk::Extent2D         swapchainExtent_{};
     vk::SurfaceFormatKHR surfaceFormat_{};
