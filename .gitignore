@@ -1,6 +1,5 @@
-/build
+build/
 *.json
-/.vscode
-.gitignore
-./shaders/compile.sh
-./src/prev.cpp
+.vscode/
+shaders/compile.sh
+src/prev.cpp
