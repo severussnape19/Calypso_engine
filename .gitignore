@@ -1,5 +1,6 @@
 build/
-*.json
 .vscode/
-shaders/compile.sh
+compile_commands.json
+*.json
 src/prev.cpp
+shaders/compile.sh
