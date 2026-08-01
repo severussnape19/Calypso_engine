@@ -15,7 +15,7 @@ module;
 
 export module swapchain;
 
-import VulkanContext;
+import context;
 import types;
 
 export class Swapchain {

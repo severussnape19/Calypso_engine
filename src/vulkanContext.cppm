@@ -10,7 +10,7 @@ module;
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_raii.hpp>
 
-export module VulkanContext;
+export module context;
 import types;
 
 /* This class owns all the mostly stable / static objects i.e things that exist once for the lifetime of the app.
@@ -19,8 +19,9 @@ export class VulkanContext {
 public:
     VulkanContext(bool enableValidation)
     : enableValidation_(enableValidation)
-    , layers_(enableValidation_ ?
-            std::vector<char const*>{"VK_LAYER_KHRONOS_validation"} : std::vector<char const*>{})
+    , layers_(enableValidation_
+             ? std::vector<char const*>{"VK_LAYER_KHRONOS_validation"}
+             : std::vector<char const*>{})
     {
         createInstance();
         createDebugMessenger();
@@ -47,9 +48,9 @@ private:
         // The vulkan instance aggregates all vulkan capable devices together each device then exposing one or more queues
         vk::ApplicationInfo appInfo{};
         appInfo
-            .setPApplicationName("Vulkan")
+            .setPApplicationName("Calypso Engine")
             .setApplicationVersion(vk::makeVersion(0, 1, 0))
-            .setPEngineName("Posseidon")
+            .setPEngineName("Calypso")
             .setEngineVersion(vk::makeVersion(0, 1, 0))
             .setApiVersion(VK_API_VERSION_1_3);
 

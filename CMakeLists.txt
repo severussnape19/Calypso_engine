@@ -17,6 +17,7 @@ target_sources(app
       src/app.cppm
       src/vulkanContext.cppm
       src/swapchain.cppm
+      src/pipeline.cppm
 )
 
 target_include_directories(app PRIVATE

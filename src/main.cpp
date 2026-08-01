@@ -5,8 +5,9 @@
 
 import types;
 import app;
-import VulkanContext;
+import context;
 import swapchain;
+import pipeline;
 
 auto main(i32 argc, char* argv[]) -> i32 {
     try {
@@ -23,6 +24,7 @@ auto main(i32 argc, char* argv[]) -> i32 {
 
         VulkanContext context(true);
         Swapchain swapchain(context, window);
+        Pipeline(context, swapchain);
 
         glfwDestroyWindow(window);
         glfwTerminate();
