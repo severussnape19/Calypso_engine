@@ -1,0 +1,24 @@
+{
+  "revision": 0,
+  "rules": [
+    {
+      "primary-output": "CMakeFiles/app.dir/src/swapchain.cppm.o",
+      "provides": [
+        {
+          "is-interface": true,
+          "logical-name": "swapchain",
+          "source-path": "/home/lakshya/ws/vulkan_ws/renderer/src/swapchain.cppm"
+        }
+      ],
+      "requires": [
+        {
+          "logical-name": "context"
+        },
+        {
+          "logical-name": "types"
+        }
+      ]
+    }
+  ],
+  "version": 1
+}

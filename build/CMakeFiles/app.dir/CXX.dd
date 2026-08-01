@@ -1,0 +1,18 @@
+ninja_dyndep_version = 1.0
+build CMakeFiles/app.dir/src/main.cpp.o: dyndep | CMakeFiles/app.dir/types.pcm CMakeFiles/app.dir/context.pcm CMakeFiles/app.dir/swapchain.pcm CMakeFiles/app.dir/pipeline.pcm CMakeFiles/app.dir/frameRenderer.pcm
+
+build CMakeFiles/app.dir/src/types.cppm.o | CMakeFiles/app.dir/types.pcm: dyndep
+  restat = 1
+
+build CMakeFiles/app.dir/src/vulkanContext.cppm.o | CMakeFiles/app.dir/context.pcm: dyndep | CMakeFiles/app.dir/types.pcm
+  restat = 1
+
+build CMakeFiles/app.dir/src/swapchain.cppm.o | CMakeFiles/app.dir/swapchain.pcm: dyndep | CMakeFiles/app.dir/context.pcm CMakeFiles/app.dir/types.pcm
+  restat = 1
+
+build CMakeFiles/app.dir/src/pipeline.cppm.o | CMakeFiles/app.dir/pipeline.pcm: dyndep | CMakeFiles/app.dir/types.pcm CMakeFiles/app.dir/context.pcm CMakeFiles/app.dir/swapchain.pcm
+  restat = 1
+
+build CMakeFiles/app.dir/src/frameRenderer.cppm.o | CMakeFiles/app.dir/frameRenderer.pcm: dyndep | CMakeFiles/app.dir/types.pcm CMakeFiles/app.dir/context.pcm CMakeFiles/app.dir/swapchain.pcm CMakeFiles/app.dir/pipeline.pcm
+  restat = 1
+

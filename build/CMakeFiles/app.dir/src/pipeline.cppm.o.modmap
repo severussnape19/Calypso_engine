@@ -1,0 +1,5 @@
+-x c++-module
+-fmodule-output="CMakeFiles/app.dir/pipeline.pcm"
+-fmodule-file="types=CMakeFiles/app.dir/types.pcm"
+-fmodule-file="context=CMakeFiles/app.dir/context.pcm"
+-fmodule-file="swapchain=CMakeFiles/app.dir/swapchain.pcm"

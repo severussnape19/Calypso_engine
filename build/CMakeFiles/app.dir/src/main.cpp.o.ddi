@@ -1,0 +1,26 @@
+{
+  "revision": 0,
+  "rules": [
+    {
+      "primary-output": "CMakeFiles/app.dir/src/main.cpp.o",
+      "requires": [
+        {
+          "logical-name": "types"
+        },
+        {
+          "logical-name": "context"
+        },
+        {
+          "logical-name": "swapchain"
+        },
+        {
+          "logical-name": "pipeline"
+        },
+        {
+          "logical-name": "frameRenderer"
+        }
+      ]
+    }
+  ],
+  "version": 1
+}

@@ -1,0 +1,3 @@
+/home/lakshya/ws/vulkan_ws/renderer/build/CMakeFiles/app.dir
+/home/lakshya/ws/vulkan_ws/renderer/build/CMakeFiles/edit_cache.dir
+/home/lakshya/ws/vulkan_ws/renderer/build/CMakeFiles/rebuild_cache.dir

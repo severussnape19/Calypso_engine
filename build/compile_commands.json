@@ -1,0 +1,38 @@
+[
+{
+  "directory": "/home/lakshya/ws/vulkan_ws/renderer/build",
+  "command": "/usr/bin/clang++ -g -std=gnu++23 @CMakeFiles/app.dir/src/main.cpp.o.modmap -o CMakeFiles/app.dir/src/main.cpp.o -c /home/lakshya/ws/vulkan_ws/renderer/src/main.cpp",
+  "file": "/home/lakshya/ws/vulkan_ws/renderer/src/main.cpp",
+  "output": "/home/lakshya/ws/vulkan_ws/renderer/build/CMakeFiles/app.dir/src/main.cpp.o"
+},
+{
+  "directory": "/home/lakshya/ws/vulkan_ws/renderer/build",
+  "command": "/usr/bin/clang++ -g -std=gnu++23 @CMakeFiles/app.dir/src/types.cppm.o.modmap -o CMakeFiles/app.dir/src/types.cppm.o -c /home/lakshya/ws/vulkan_ws/renderer/src/types.cppm",
+  "file": "/home/lakshya/ws/vulkan_ws/renderer/src/types.cppm",
+  "output": "/home/lakshya/ws/vulkan_ws/renderer/build/CMakeFiles/app.dir/src/types.cppm.o"
+},
+{
+  "directory": "/home/lakshya/ws/vulkan_ws/renderer/build",
+  "command": "/usr/bin/clang++ -g -std=gnu++23 @CMakeFiles/app.dir/src/vulkanContext.cppm.o.modmap -o CMakeFiles/app.dir/src/vulkanContext.cppm.o -c /home/lakshya/ws/vulkan_ws/renderer/src/vulkanContext.cppm",
+  "file": "/home/lakshya/ws/vulkan_ws/renderer/src/vulkanContext.cppm",
+  "output": "/home/lakshya/ws/vulkan_ws/renderer/build/CMakeFiles/app.dir/src/vulkanContext.cppm.o"
+},
+{
+  "directory": "/home/lakshya/ws/vulkan_ws/renderer/build",
+  "command": "/usr/bin/clang++ -g -std=gnu++23 @CMakeFiles/app.dir/src/swapchain.cppm.o.modmap -o CMakeFiles/app.dir/src/swapchain.cppm.o -c /home/lakshya/ws/vulkan_ws/renderer/src/swapchain.cppm",
+  "file": "/home/lakshya/ws/vulkan_ws/renderer/src/swapchain.cppm",
+  "output": "/home/lakshya/ws/vulkan_ws/renderer/build/CMakeFiles/app.dir/src/swapchain.cppm.o"
+},
+{
+  "directory": "/home/lakshya/ws/vulkan_ws/renderer/build",
+  "command": "/usr/bin/clang++ -g -std=gnu++23 @CMakeFiles/app.dir/src/pipeline.cppm.o.modmap -o CMakeFiles/app.dir/src/pipeline.cppm.o -c /home/lakshya/ws/vulkan_ws/renderer/src/pipeline.cppm",
+  "file": "/home/lakshya/ws/vulkan_ws/renderer/src/pipeline.cppm",
+  "output": "/home/lakshya/ws/vulkan_ws/renderer/build/CMakeFiles/app.dir/src/pipeline.cppm.o"
+},
+{
+  "directory": "/home/lakshya/ws/vulkan_ws/renderer/build",
+  "command": "/usr/bin/clang++ -g -std=gnu++23 @CMakeFiles/app.dir/src/frameRenderer.cppm.o.modmap -o CMakeFiles/app.dir/src/frameRenderer.cppm.o -c /home/lakshya/ws/vulkan_ws/renderer/src/frameRenderer.cppm",
+  "file": "/home/lakshya/ws/vulkan_ws/renderer/src/frameRenderer.cppm",
+  "output": "/home/lakshya/ws/vulkan_ws/renderer/build/CMakeFiles/app.dir/src/frameRenderer.cppm.o"
+}
+]

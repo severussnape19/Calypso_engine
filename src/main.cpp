@@ -4,10 +4,10 @@
 #include <print>
 
 import types;
-import app;
 import context;
 import swapchain;
 import pipeline;
+import frameRenderer;
 
 auto main(i32 argc, char* argv[]) -> i32 {
     try {
@@ -24,7 +24,9 @@ auto main(i32 argc, char* argv[]) -> i32 {
 
         VulkanContext context(true);
         Swapchain swapchain(context, window);
-        Pipeline(context, swapchain);
+        Pipeline pipeline(context, swapchain);
+        FrameRenderer app(context, swapchain, pipeline, window);
+        app.run();
 
         glfwDestroyWindow(window);
         glfwTerminate();

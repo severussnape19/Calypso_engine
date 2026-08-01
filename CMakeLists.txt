@@ -14,10 +14,10 @@ target_sources(app
   PUBLIC
     FILE_SET CXX_MODULES FILES
       src/types.cppm
-      src/app.cppm
       src/vulkanContext.cppm
       src/swapchain.cppm
       src/pipeline.cppm
+      src/frameRenderer.cppm
 )
 
 target_include_directories(app PRIVATE

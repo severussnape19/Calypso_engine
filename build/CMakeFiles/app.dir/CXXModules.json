@@ -1,0 +1,83 @@
+{
+	"modules" : 
+	{
+		"context" : 
+		{
+			"bmi" : "/home/lakshya/ws/vulkan_ws/renderer/build/CMakeFiles/app.dir/context.pcm",
+			"is-private" : false
+		},
+		"frameRenderer" : 
+		{
+			"bmi" : "/home/lakshya/ws/vulkan_ws/renderer/build/CMakeFiles/app.dir/frameRenderer.pcm",
+			"is-private" : false
+		},
+		"pipeline" : 
+		{
+			"bmi" : "/home/lakshya/ws/vulkan_ws/renderer/build/CMakeFiles/app.dir/pipeline.pcm",
+			"is-private" : false
+		},
+		"swapchain" : 
+		{
+			"bmi" : "/home/lakshya/ws/vulkan_ws/renderer/build/CMakeFiles/app.dir/swapchain.pcm",
+			"is-private" : false
+		},
+		"types" : 
+		{
+			"bmi" : "/home/lakshya/ws/vulkan_ws/renderer/build/CMakeFiles/app.dir/types.pcm",
+			"is-private" : false
+		}
+	},
+	"references" : 
+	{
+		"context" : 
+		{
+			"lookup-method" : "by-name",
+			"path" : "CMakeFiles/app.dir/context.pcm"
+		},
+		"frameRenderer" : 
+		{
+			"lookup-method" : "by-name",
+			"path" : "CMakeFiles/app.dir/frameRenderer.pcm"
+		},
+		"pipeline" : 
+		{
+			"lookup-method" : "by-name",
+			"path" : "CMakeFiles/app.dir/pipeline.pcm"
+		},
+		"swapchain" : 
+		{
+			"lookup-method" : "by-name",
+			"path" : "CMakeFiles/app.dir/swapchain.pcm"
+		},
+		"types" : 
+		{
+			"lookup-method" : "by-name",
+			"path" : "CMakeFiles/app.dir/types.pcm"
+		}
+	},
+	"usages" : 
+	{
+		"context" : 
+		[
+			"types"
+		],
+		"frameRenderer" : 
+		[
+			"context",
+			"pipeline",
+			"swapchain",
+			"types"
+		],
+		"pipeline" : 
+		[
+			"context",
+			"swapchain",
+			"types"
+		],
+		"swapchain" : 
+		[
+			"context",
+			"types"
+		]
+	}
+}

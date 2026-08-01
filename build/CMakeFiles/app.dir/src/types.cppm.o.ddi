@@ -1,0 +1,16 @@
+{
+  "revision": 0,
+  "rules": [
+    {
+      "primary-output": "CMakeFiles/app.dir/src/types.cppm.o",
+      "provides": [
+        {
+          "is-interface": true,
+          "logical-name": "types",
+          "source-path": "/home/lakshya/ws/vulkan_ws/renderer/src/types.cppm"
+        }
+      ]
+    }
+  ],
+  "version": 1
+}

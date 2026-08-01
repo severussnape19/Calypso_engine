@@ -37,8 +37,8 @@ public:
 
     [[nodiscard]] auto getInstance()       const noexcept -> vk::raii::Instance const&       { return instance_; }
     [[nodiscard]] auto getPhysicalDevice() const noexcept -> vk::raii::PhysicalDevice const& { return physicalDevice_; }
-    [[nodiscard]] auto getLogicalDevice()  const noexcept -> vk::raii::Device const&         { return device_; }
-    [[nodiscard]] auto getLogicalDevice()  noexcept -> vk::raii::Device&                     { return device_; }
+    auto getLogicalDevice()  const noexcept -> vk::raii::Device const&         { return device_; }
+    auto getLogicalDevice()  noexcept -> vk::raii::Device&                     { return device_; }
     [[nodiscard]] auto getQueue()          const noexcept -> vk::raii::Queue const&          { return queue_; }
     [[nodiscard]] auto getCommandpool()    const noexcept -> vk::raii::CommandPool const&    { return commandPool_; }
     [[nodiscard]] auto getQueueIndex()     const noexcept -> u32                             { return queueIndex_; }
@@ -150,7 +150,7 @@ private:
         std::println(stderr, "[LOG] Physical device found!");
     }
 
-    auto isDeviceSuitable(vk::raii::PhysicalDevice physicalDevice) -> bool {
+    auto isDeviceSuitable(vk::raii::PhysicalDevice const& physicalDevice) -> bool {
         auto physicalDeviceProperties = physicalDevice.getProperties2().properties;
         bool version1_3_support = physicalDeviceProperties.apiVersion >= VK_API_VERSION_1_3;
         bool isDescrete = physicalDeviceProperties.deviceType == vk::PhysicalDeviceType::eDiscreteGpu;
