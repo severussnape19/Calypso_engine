@@ -26,6 +26,8 @@ auto main(i32 argc, char* argv[]) -> i32 {
         Swapchain swapchain(context, window);
         Pipeline pipeline(context, swapchain);
         FrameRenderer app(context, swapchain, pipeline, window);
+        glfwSetWindowUserPointer(window, &app);
+        glfwSetFramebufferSizeCallback(window, *app.framebufferResizeCallback);
         app.run();
 
         glfwDestroyWindow(window);

@@ -23,14 +23,13 @@ public:
     explicit Swapchain(VulkanContext const& context, GLFWwindow* window) noexcept
         : context_(context)
         , window_(window) {
-
-        createSurface();
-        createSwapchain();
-        createImageViews();
-        createDepthImage();
-        createDepthImageView();
-        depthLayoutTransition();
-    }
+            createSurface();
+            createSwapchain();
+            createImageViews();
+            createDepthImage();
+            createDepthImageView();
+            depthLayoutTransition();
+        }
 
     Swapchain(Swapchain const& o) = delete;
     auto operator=(Swapchain const& o) -> Swapchain& = delete;
@@ -39,8 +38,25 @@ public:
     [[nodiscard]] auto getSurfaceFormat()  const noexcept -> vk::SurfaceFormatKHR                    { return surfaceFormat_; }
     [[nodiscard]] auto getSwapchain()      const noexcept -> vk::raii::SwapchainKHR const&           { return swapchain_; }
     [[nodiscard]] auto getImages()         const noexcept -> std::vector<vk::Image> const&           { return swapchainImages_; }
+    [[nodiscard]] auto getImages()         noexcept -> std::vector<vk::Image>&           { return swapchainImages_; }
     [[nodiscard]] auto getImageViews()     const noexcept -> std::vector<vk::raii::ImageView> const& { return swapchainImageViews_; }
     [[nodiscard]] auto getDepthImageView() const noexcept -> vk::raii::ImageView const&              { return depthImageView_; }
+
+    auto cleanupSwapchain() -> void {
+        swapchainImageViews_.clear();
+        swapchain_ = nullptr;
+    }
+
+    auto recreateSwapchain() -> void {
+        /* We would have the necessity to recreate the swapchain for example if there has been a change
+           in the window size i.e window resize, we should catch that event and recreate the swap chain*/
+        context_.getLogicalDevice().waitIdle();
+        cleanupSwapchain(); // clear all the image views and cleanup the old swapchain
+
+        createSwapchain();
+        createImageViews(); // we create views on the images that the swapchain creates
+    }
+
 private:
     auto createSurface() -> void {
         VkSurfaceKHR _surface = VK_NULL_HANDLE;
