@@ -1,6 +1,16 @@
+# Build artifacts
 build/
+
+# IDE
 .vscode/
+.cache/
+
+# CMake
 compile_commands.json
-*.json
+CMakeUserPresets.json
+
+# Generated shader binaries
+shaders/*.spv
+
+# Temporary files
 src/prev.cpp
-shaders/compile.sh
