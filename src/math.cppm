@@ -125,7 +125,7 @@ auto operator<<(std::ostream& os, Vec3<T> const& v) -> std::ostream& {
 }
 
 export template <std::floating_point T = f32>
-struct Vec4 {
+struct alignas(16) Vec4 { // vulkan specifies that 4d vectors and matrices need to be 16 byte aligned
 public:
     constexpr Vec4() noexcept
         : x(static_cast<T>(0))
@@ -226,7 +226,7 @@ auto operator<<(std::ostream& os, Vec4<T> const& v) -> std::ostream& {
 }
 
 export template <std::floating_point T = f32>
-struct Mat4 {
+struct alignas(16) Mat4 {
 /*
 > data is stored in column major order. follow the fkn order.
 */
@@ -431,6 +431,11 @@ constexpr auto operator<<(std::ostream& os, Mat4<T> const& m) -> std::ostream& {
     os.flags(old_flags);
     return os;
 }
+
+export using Vec2f = Vec2<f32>;
+export using Vec3f = Vec3<f32>;
+export using Vec4f = Vec4<f32>;
+export using Mat4f = Mat4<f32>;
 
 export using Color = Vec3<f32>;
 export using Point = Vec3<f32>;

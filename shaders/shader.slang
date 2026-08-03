@@ -1,34 +1,30 @@
-// triangle positions
-static float2 positions[3] = float2[] (
-    float2(0.0, -0.5),
-    float2(0.5, 0.5),
-    float2(-0.5, 0.5)
-);
+struct VSInput {
+    float2 inPosition;
+    float3 inColor;
+};
 
-static float3 colors[3] = float3[] (
-    float3(1.0, 0.0, 0.0),
-    float3(0.0, 1.0, 0.0),
-    float3(0.0, 0.0, 1.0)
-);
-
-struct VertexOutput {
+struct VSOutput {
+    float4 pos: SV_Position;
     float3 color;
-    float4 sv_position: SV_Position;
 };
 
 // This function is invoked for every vertex
 // SV_VertexID -> parameter that contains the index of the current vertex.
 // This usually an index into the vertex buffer
 [shader("vertex")]
-VertexOutput vertMain(uint vid: SV_VertexID) {
-    VertexOutput output;
-    output.sv_position = float4(positions[vid], 0.0, 1.0);
-    output.color = colors[vid];
+VSOutput vertMain(VSInput input) {
+    VSOutput output;
+    output.pos = float4(input.inPosition, 0.0, 1.0);
+    output.color = input.inColor;
     return output;
 }
 
 [shader("fragment")]
-float4 fragMain(VertexOutput inVert) : SV_Target {
+float4 fragMain(VSOutput inVert) : SV_Target {
     float3 color = inVert.color;
     return float4(color, 1.0); // red triangle
 }
+
+/*
+ * inPosition and inColor are vertex attributes. These are properties that are specified per vertex in the vertex buffer
+*/

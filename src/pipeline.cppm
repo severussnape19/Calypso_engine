@@ -11,6 +11,42 @@ export module pipeline;
 import types;
 import context;
 import swapchain;
+import math;
+
+export struct Vertex {
+    Vec2f pos;
+    Color color;
+
+    static auto getBindingDescription() -> vk::VertexInputBindingDescription {
+        /* A vertex binding describes at which rate to load data from memory throughout the vertices.
+         * It specifies the number of bytes between data entries and
+         * whether to move to the next data entry after each vertex or after each instance.*/
+        return {0, sizeof(Vertex) , vk::VertexInputRate::eVertex};
+    }
+
+    static auto getAttributeDescriptions() -> std::array<vk::VertexInputAttributeDescription, 2> {
+        /* An attribute description struct describes how to extract a vertex attribute from a chunk
+           of vertex data originating from a binding description
+
+        * The format here matches the number of components in the shader data type.
+        */
+        vk::VertexInputAttributeDescription des1{
+            0,
+            0,
+            vk::Format::eR32G32Sfloat,
+            offsetof(Vertex, pos) // 0 bytes
+        };
+        vk::VertexInputAttributeDescription des2{
+            1,
+            0,
+            vk::Format::eR32G32B32Sfloat,
+            offsetof(Vertex, color) // 8
+        };
+        return {des1, des2};
+    }
+};
+
+;
 
 /* owns shader modules, Descriptor set layouts, pipeline layout and ofc the object itself */
 export class Pipeline {
@@ -70,8 +106,16 @@ private:
             .setModule(shader_module)
             .setPName("fragMain");
 
-        std::array<vk::PipelineShaderStageCreateInfo, 2> shaderStages{vertexShaderStage, fragmentShaderStage};
+        auto bindingDescription   = Vertex::getBindingDescription();
+        auto attributeDescriptions = Vertex::getAttributeDescriptions();
         vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
+        vertexInputInfo
+            .setVertexBindingDescriptionCount(1u)
+            .setPVertexBindingDescriptions(&bindingDescription)
+            .setVertexAttributeDescriptionCount(static_cast<u32>(attributeDescriptions.size()))
+            .setPVertexAttributeDescriptions(attributeDescriptions.data());
+
+        std::array<vk::PipelineShaderStageCreateInfo, 2> shaderStages{vertexShaderStage, fragmentShaderStage};
 
         vk::PipelineInputAssemblyStateCreateInfo inputAssemblyState{};
         inputAssemblyState.setTopology(vk::PrimitiveTopology::eTriangleList);
@@ -185,4 +229,6 @@ private:
     vk::raii::PipelineLayout      pipelineLayout_      = nullptr;
     vk::raii::Pipeline            graphicsPipeline_    = nullptr;
     vk::raii::DescriptorSetLayout descriptorSetLayout_ = nullptr;
+
+
 };

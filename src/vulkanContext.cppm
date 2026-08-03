@@ -37,8 +37,8 @@ public:
 
     [[nodiscard]] auto getInstance()       const noexcept -> vk::raii::Instance const&       { return instance_; }
     [[nodiscard]] auto getPhysicalDevice() const noexcept -> vk::raii::PhysicalDevice const& { return physicalDevice_; }
-    auto getLogicalDevice()  const noexcept -> vk::raii::Device const&         { return device_; }
-    auto getLogicalDevice()  noexcept -> vk::raii::Device&                     { return device_; }
+    auto getLogicalDevice()                const noexcept -> vk::raii::Device const&         { return device_; }
+    auto getLogicalDevice()                       noexcept -> vk::raii::Device&              { return device_; }
     [[nodiscard]] auto getQueue()          const noexcept -> vk::raii::Queue const&          { return queue_; }
     [[nodiscard]] auto getCommandpool()    const noexcept -> vk::raii::CommandPool const&    { return commandPool_; }
     [[nodiscard]] auto getQueueIndex()     const noexcept -> u32                             { return queueIndex_; }
@@ -97,12 +97,12 @@ private:
         const vk::DebugUtilsMessengerCallbackDataEXT* pCallbackData,
         void*                                       pUserData
     ) -> vk::Bool32 {
-        if (messageSeverity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning ||
-            messageSeverity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eError   ||
-            messageSeverity == vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo    ||
-            messageTypes    == vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation ||
-            messageTypes    == vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance ||
-            messageTypes    == vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral ) {
+        if (messageSeverity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning ||
+            messageSeverity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eError   ||
+            messageSeverity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo    ||
+            messageTypes    & vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation  ||
+            messageTypes    & vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance ||
+            messageTypes    & vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral ) {
 
             std::println(stderr, "[VULKAN] {}", pCallbackData->pMessage);
         }

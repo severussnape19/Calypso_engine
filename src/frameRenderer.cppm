@@ -4,15 +4,24 @@ module;
 #include <GLFW/glfw3.h>
 #include <limits>
 #include <stdexcept>
+#include <vector>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_raii.hpp>
 #include <print>
+
 export module frameRenderer;
 
 import types;
 import context;
 import swapchain;
 import pipeline;
+import math;
+
+std::vector<Vertex> const vertices {
+    {{0.f, -0.5f}, {1.f, 0.f, 0.f}},
+    {{0.5f, 0.5f}, {0.f, 1.f, 0.f}},
+    {{-0.5f, 0.5f}, {0.f, 0.f, 1.f}},
+};
 
 export class FrameRenderer {
 public:
@@ -22,6 +31,7 @@ public:
         , pipeline_(pipeline)
         , window_(window)
     {
+        createVertexBuffer();
         createCommandBuffer();
         createSyncObjects();
     }
@@ -39,6 +49,16 @@ public:
         app->framebufferResized = true;
     }
 private:
+    auto createVertexBuffer() -> void {
+        vk::BufferCreateInfo bufferCreateInfo{};
+        bufferCreateInfo
+            .setSize(sizeof(vertices[0]) * vertices.size()) // size of buffer in bytes
+            .setUsage(vk::BufferUsageFlagBits::eVertexBuffer) // purpose of the buffer
+            .setSharingMode(vk::SharingMode::eExclusive); // no concurrency
+
+        vertexBuffer_ = vk::raii::Buffer(context_.getLogicalDevice(), bufferCreateInfo);
+    }
+
     auto createCommandBuffer() -> void {
         vk::CommandBufferAllocateInfo allocInfo{};
         allocInfo
@@ -155,21 +175,32 @@ private:
         // CPU blocks here until GPU signals 'inflightfence_'.
         // 'inflightFence_' was submitted with previous frame''s 'queueSubmit2' - GPU signals it when it finishes executing that command buffer.
         // We only proceed after the signal which indicates that we can re-record the command buffers now as they are completely used by the GPU
-        auto result = context_.getLogicalDevice().waitForFences(*inflightFences_[currentFrame_], vk::True, std::numeric_limits<u64>::max());
+        auto result = context_.getLogicalDevice().waitForFences(
+                *inflightFences_[currentFrame_],
+                vk::True,
+                std::numeric_limits<u64>::max()
+        );
         if (result != vk::Result::eSuccess) {
             throw std::runtime_error("[ERR] Failed to wait for fence");
         }
-        context_.getLogicalDevice().resetFences(*inflightFences_[currentFrame_]);
 
-        // Returns the index of a free image from the image pool
-        // the 'imageAvailableSemaphores_[currentFrame_]' semaphore gets signaled by the swapchain when the image is actually ready
-        auto [acquireResult, imageIndex] = swapchain_.getSwapchain().acquireNextImage(
-            std::numeric_limits<u64>::max(),
-            *presentCompleteSemaphores_[currentFrame_],
-            nullptr
-        );
+        if (framebufferResized) {
+            framebufferResized = false;
+            swapchain_.recreateSwapchain();
+            return;
+        }
 
-        if (acquireResult == vk::Result::eErrorOutOfDateKHR) {
+        vk::Result acquireResult{};
+        u32 imageIndex{};
+        try {
+            // Returns the index of a free image from the image pool
+            // the 'imageAvailableSemaphores_[currentFrame_]' semaphore gets signaled by the swapchain when the image is actually ready
+            std::tie(acquireResult, imageIndex) = swapchain_.getSwapchain().acquireNextImage(
+                std::numeric_limits<u64>::max(),
+                *presentCompleteSemaphores_[currentFrame_],
+                nullptr
+            );
+        } catch (vk::OutOfDateKHRError const&) {
             swapchain_.recreateSwapchain();
             return;
         }
@@ -202,22 +233,13 @@ private:
         vk::CommandBufferSubmitInfo cmdSubmitInfo{};
         cmdSubmitInfo.setCommandBuffer(*commandBuffer_[currentFrame_]);
 
-        vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
-        vk::SubmitInfo submitInfo{};
+        vk::SubmitInfo2 submitInfo{};
         submitInfo
-            // Wait semaphores
-            .setWaitSemaphoreCount(1u)
-            .setPWaitSemaphores(&*presentCompleteSemaphores_[currentFrame_])
-            .setPWaitDstStageMask(&waitDestinationStageMask)
-            // Commandbufs
-            .setCommandBufferCount(1u)
-            .setPCommandBuffers(&*commandBuffer_[currentFrame_])
-            // Signal Semaphores
-            .setSignalSemaphoreCount(1u)
-            .setPSignalSemaphores(&*renderFinishedSemaphores_[imageIndex])
-            ;
+            .setWaitSemaphoreInfos(waitSemaphoreInfo)
+            .setCommandBufferInfos(cmdSubmitInfo)
+            .setSignalSemaphoreInfos(signalSemaphoreInfo);
 
-        context_.getQueue().submit(submitInfo, *inflightFences_[currentFrame_]);
+        context_.getQueue().submit2(submitInfo, *inflightFences_[currentFrame_]);
         // ---
 
         // Present frame
@@ -289,7 +311,10 @@ private:
 //    vk::raii::Semaphore renderFinishedSemaphore_  = nullptr;
     std::vector<vk::raii::Semaphore> presentCompleteSemaphores_{};
     std::vector<vk::raii::Semaphore> renderFinishedSemaphores_{};
-    std::vector<vk::raii::Fence>                  inflightFences_{};
+    std::vector<vk::raii::Fence>     inflightFences_{};
     u32 currentFrame_{};
     bool framebufferResized = false;
+
+
+    vk::raii::Buffer              vertexBuffer_ = nullptr;
 };

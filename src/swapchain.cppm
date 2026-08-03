@@ -38,16 +38,36 @@ public:
     [[nodiscard]] auto getSurfaceFormat()  const noexcept -> vk::SurfaceFormatKHR                    { return surfaceFormat_; }
     [[nodiscard]] auto getSwapchain()      const noexcept -> vk::raii::SwapchainKHR const&           { return swapchain_; }
     [[nodiscard]] auto getImages()         const noexcept -> std::vector<vk::Image> const&           { return swapchainImages_; }
-    [[nodiscard]] auto getImages()         noexcept -> std::vector<vk::Image>&           { return swapchainImages_; }
+    [[nodiscard]] auto getImages()         noexcept -> std::vector<vk::Image>&                       { return swapchainImages_; }
     [[nodiscard]] auto getImageViews()     const noexcept -> std::vector<vk::raii::ImageView> const& { return swapchainImageViews_; }
     [[nodiscard]] auto getDepthImageView() const noexcept -> vk::raii::ImageView const&              { return depthImageView_; }
 
+    [[nodiscard]] auto findMemoryType(u32 typeBits, vk::MemoryPropertyFlags props) -> u32 {
+        vk::PhysicalDeviceMemoryProperties memProps = context_.getPhysicalDevice().getMemoryProperties();
+
+        for (u32 i = 0; i < memProps.memoryTypeCount; i++) {
+            if ((typeBits & (1 << i)) && (memProps.memoryTypes[i].propertyFlags & props) == props) {
+                return i;
+            }
+        }
+        throw std::runtime_error("[ERR] Failed to find a suitable memory type!");
+    }
+
     auto cleanupSwapchain() -> void {
+        depthImageView_ = nullptr;
+        depthImageMemory_ = nullptr;
+        depthImage_ = nullptr;
         swapchainImageViews_.clear();
         swapchain_ = nullptr;
     }
 
     auto recreateSwapchain() -> void {
+        int width = 0, height = 0;
+        glfwGetFramebufferSize(window_, &width, &height);
+        while (width == 0 || height == 0) {
+            glfwGetFramebufferSize(window_, &width, &height);
+            glfwWaitEvents();
+        }
         /* We would have the necessity to recreate the swapchain for example if there has been a change
            in the window size i.e window resize, we should catch that event and recreate the swap chain*/
         context_.getLogicalDevice().waitIdle();
@@ -55,6 +75,9 @@ public:
 
         createSwapchain();
         createImageViews(); // we create views on the images that the swapchain creates
+        createDepthImage();
+        createDepthImageView();
+        depthLayoutTransition();
     }
 
 private:
@@ -222,7 +245,7 @@ private:
         depthImageView_ = vk::raii::ImageView(context_.getLogicalDevice(), createInfo);
         std::println(stderr, "[LOG] Created Depth image view!");
     }
-
+/*
     auto findMemoryType(u32 typeBits, vk::MemoryPropertyFlags props) -> u32 {
         vk::PhysicalDeviceMemoryProperties memProps = context_.getPhysicalDevice().getMemoryProperties();
 
@@ -233,7 +256,7 @@ private:
         }
         throw std::runtime_error("[ERR] Failed to find a suitable memory type!");
     }
-
+*/
     auto depthLayoutTransition() -> void {
         /* Before an image can be presented, it must be in the correct layout. This state is the VK_IMAGE_LAYOUT_PRESENT_SRC_KHR layout.
          * Images are transitioned from layout to layout using image memory barriers.
