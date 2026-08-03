@@ -20,7 +20,7 @@ import types;
 
 export class Swapchain {
 public:
-    explicit Swapchain(VulkanContext const& context, GLFWwindow* window) noexcept
+    explicit Swapchain(VulkanContext const& context, GLFWwindow* window)
         : context_(context)
         , window_(window) {
             createSurface();
@@ -41,6 +41,7 @@ public:
     [[nodiscard]] auto getImages()         noexcept -> std::vector<vk::Image>&                       { return swapchainImages_; }
     [[nodiscard]] auto getImageViews()     const noexcept -> std::vector<vk::raii::ImageView> const& { return swapchainImageViews_; }
     [[nodiscard]] auto getDepthImageView() const noexcept -> vk::raii::ImageView const&              { return depthImageView_; }
+    [[nodiscard]] auto getDepthImage()     const noexcept -> vk::raii::Image const&                  { return depthImage_; }
 
     [[nodiscard]] auto findMemoryType(u32 typeBits, vk::MemoryPropertyFlags props) -> u32 {
         vk::PhysicalDeviceMemoryProperties memProps = context_.getPhysicalDevice().getMemoryProperties();
@@ -143,7 +144,7 @@ private:
 
     auto createSwapchain() -> void {
         // Physical device must have surfacce support
-        assert(context_.getPhysicalDevice().getSurfaceSupportKHR(context_.getQueueIndex(), *surface_) && "[ERR] Physical Device does not have surface support!");
+        assert(context_.getPhysicalDevice().getSurfaceSupportKHR(context_.getGraphicsQueueIndex(), *surface_) && "[ERR] Physical Device does not have surface support!");
 
         vk::SurfaceCapabilitiesKHR surfaceCapabilities = context_.getPhysicalDevice().getSurfaceCapabilitiesKHR(*surface_);
 
@@ -245,18 +246,7 @@ private:
         depthImageView_ = vk::raii::ImageView(context_.getLogicalDevice(), createInfo);
         std::println(stderr, "[LOG] Created Depth image view!");
     }
-/*
-    auto findMemoryType(u32 typeBits, vk::MemoryPropertyFlags props) -> u32 {
-        vk::PhysicalDeviceMemoryProperties memProps = context_.getPhysicalDevice().getMemoryProperties();
 
-        for (u32 i = 0; i < memProps.memoryTypeCount; i++) {
-            if ((typeBits & (1 << i)) && (memProps.memoryTypes[i].propertyFlags & props) == props) {
-                return i;
-            }
-        }
-        throw std::runtime_error("[ERR] Failed to find a suitable memory type!");
-    }
-*/
     auto depthLayoutTransition() -> void {
         /* Before an image can be presented, it must be in the correct layout. This state is the VK_IMAGE_LAYOUT_PRESENT_SRC_KHR layout.
          * Images are transitioned from layout to layout using image memory barriers.
@@ -299,8 +289,8 @@ private:
 
         vk::SubmitInfo submitInfo{};
         submitInfo.setCommandBuffers(*cmdBuf);
-        context_.getQueue().submit(submitInfo);
-        context_.getQueue().waitIdle();
+        context_.getGraphicsQueue().submit(submitInfo);
+        context_.getGraphicsQueue().waitIdle();
 
         std::println(stderr, "[LOG] Depth buffer layout transitioned!");
     }

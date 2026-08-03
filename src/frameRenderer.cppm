@@ -2,6 +2,7 @@ module;
 
 #include "vulkan/vulkan.hpp"
 #include <GLFW/glfw3.h>
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <vector>
@@ -17,10 +18,12 @@ import swapchain;
 import pipeline;
 import math;
 
+#define MAX_FRAMES_INFLIGHT 2
+
 std::vector<Vertex> const vertices {
-    {{0.f, -0.5f}, {1.f, 0.f, 0.f}},
-    {{0.5f, 0.5f}, {0.f, 1.f, 0.f}},
-    {{-0.5f, 0.5f}, {0.f, 0.f, 1.f}},
+    {.pos = {0.f, -0.5f},  .color = {1.f, 0.f, 0.f}},
+    {.pos = {0.5f, 0.5f},  .color = {0.f, 1.f, 0.f}},
+    {.pos = {-0.5f, 0.5f}, .color = {0.f, 0.f, 1.f}},
 };
 
 export class FrameRenderer {
@@ -57,6 +60,25 @@ private:
             .setSharingMode(vk::SharingMode::eExclusive); // no concurrency
 
         vertexBuffer_ = vk::raii::Buffer(context_.getLogicalDevice(), bufferCreateInfo);
+
+        vk::MemoryRequirements memReqs = vertexBuffer_.getMemoryRequirements();
+
+        vk::MemoryAllocateInfo memAllocInfo{};
+        memAllocInfo
+            .setAllocationSize(memReqs.size)
+            .setMemoryTypeIndex(swapchain_.findMemoryType(memReqs.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent));
+
+        vertexBufferMemory_ = vk::raii::DeviceMemory(context_.getLogicalDevice(), memAllocInfo);
+        vertexBuffer_.bindMemory(*vertexBufferMemory_, 0u);
+
+        // Copying the vertex data into the buffer
+        void* data = vertexBufferMemory_.mapMemory(0, bufferCreateInfo.size);
+        // the above function gives us access to a region of specified memory
+        memcpy(data, vertices.data(), bufferCreateInfo.size);
+        vertexBufferMemory_.unmapMemory();
+
+        // the driver may not immediately copy the data into the buffer memory due to some reasons.
+        // see vertex buffer docs why and how to fix that
     }
 
     auto createCommandBuffer() -> void {
@@ -112,6 +134,18 @@ private:
             .setColorAttachmentCount(1u)
             .setPColorAttachments(&colorAttachmentInfo)
             .setPDepthAttachment(&depthAttachmentInfo);
+        // Transition depth image before beginRendering
+        transition_image_layout(
+            cmdBuf,
+            swapchain_.getDepthImage(), // Add getter to swapchain module if needed
+            vk::ImageLayout::eUndefined,
+            vk::ImageLayout::eDepthStencilAttachmentOptimal,
+            vk::AccessFlags2{},
+            vk::AccessFlags2{vk::AccessFlagBits2::eDepthStencilAttachmentWrite},
+            vk::PipelineStageFlags2{vk::PipelineStageFlagBits2::eTopOfPipe},
+            vk::PipelineStageFlags2{vk::PipelineStageFlagBits2::eEarlyFragmentTests | vk::PipelineStageFlagBits2::eLateFragmentTests},
+            vk::ImageAspectFlagBits::eDepth
+        );
 
         // Draw commands from here
         commandBuffer_[curIdx].beginRendering(renderingInfo);
@@ -126,9 +160,12 @@ private:
         commandBuffer_[curIdx].setViewport(0, viewport);
         vk::Rect2D scissor{{0, 0}, swapchain_.getExtent()};
         commandBuffer_[curIdx].setScissor(0, scissor);
+
         commandBuffer_[curIdx].bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline_.getPipeline());
 
-        commandBuffer_[curIdx].draw(3, 1, 0, 0);
+        // Bind vertex buffer during rendering
+        commandBuffer_[curIdx].bindVertexBuffers(0, *vertexBuffer_, {0});
+        commandBuffer_[curIdx].draw(static_cast<u32>(vertices.size()), 1, 0, 0);
         // End draw commands
         commandBuffer_[curIdx].endRendering();
 
@@ -239,7 +276,7 @@ private:
             .setCommandBufferInfos(cmdSubmitInfo)
             .setSignalSemaphoreInfos(signalSemaphoreInfo);
 
-        context_.getQueue().submit2(submitInfo, *inflightFences_[currentFrame_]);
+        context_.getGraphicsQueue().submit2(submitInfo, *inflightFences_[currentFrame_]);
         // ---
 
         // Present frame
@@ -255,7 +292,7 @@ private:
 
         vk::Result presentResult{};
         try{
-            presentResult = context_.getQueue().presentKHR(presentInfo);
+            presentResult = context_.getGraphicsQueue().presentKHR(presentInfo);
         } catch (vk::OutOfDateKHRError const&) {
             presentResult = vk::Result::eErrorOutOfDateKHR;
         }
@@ -263,7 +300,7 @@ private:
         if (presentResult == vk::Result::eErrorOutOfDateKHR || presentResult == vk::Result::eSuboptimalKHR) {
             swapchain_.recreateSwapchain();
         }
-       currentFrame_ = (currentFrame_ + 1) % swapchain_.getImageViews().size();
+       currentFrame_ = (currentFrame_ + 1) % MAX_FRAMES_INFLIGHT;
     }
 
     auto transition_image_layout(
@@ -271,7 +308,8 @@ private:
         vk::Image image,
         vk::ImageLayout         old_layout,      vk::ImageLayout         new_layout,
         vk::AccessFlags2        src_access_mask, vk::AccessFlags2        dst_access_mask,
-        vk::PipelineStageFlags2 src_stage_mask,  vk::PipelineStageFlags2 dst_stage_mask
+        vk::PipelineStageFlags2 src_stage_mask,  vk::PipelineStageFlags2 dst_stage_mask,
+        vk::ImageAspectFlags    aspec_mask = vk::ImageAspectFlagBits::eColor
     ) -> void {
         /* before we start rendering to an image, we need to transition its layout to one that is suitable for rendeing*/
         vk::ImageMemoryBarrier2 barrier{};
@@ -286,7 +324,7 @@ private:
             .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
             .setImage(image)
             .setSubresourceRange({
-                vk::ImageAspectFlagBits::eColor,
+                aspec_mask,
                 0,
                 1,
                 0,
@@ -315,6 +353,8 @@ private:
     u32 currentFrame_{};
     bool framebufferResized = false;
 
+    vk::raii::Buffer              vertexBuffer_       = nullptr;
+    vk::raii::DeviceMemory        vertexBufferMemory_ = nullptr;
 
-    vk::raii::Buffer              vertexBuffer_ = nullptr;
+
 };

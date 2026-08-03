@@ -4,8 +4,10 @@ module;
 #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <print>
+#include <set>
 #include <stdexcept>
 #include <string_view>
+#include <unordered_map>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_raii.hpp>
@@ -26,22 +28,28 @@ public:
         createInstance();
         createDebugMessenger();
         pickPhysicalDevice();
+        chooseQueueFamilies();
         createLogicalDevice();
         createCommandPool();
+        createTransferCommandPool();
     }
 
     ~VulkanContext() = default;
 
-    VulkanContext(VulkanContext const&) = delete;
+    VulkanContext(VulkanContext const&)  = delete;
     auto operator=(VulkanContext const&) = delete;
 
-    [[nodiscard]] auto getInstance()       const noexcept -> vk::raii::Instance const&       { return instance_; }
-    [[nodiscard]] auto getPhysicalDevice() const noexcept -> vk::raii::PhysicalDevice const& { return physicalDevice_; }
-    auto getLogicalDevice()                const noexcept -> vk::raii::Device const&         { return device_; }
-    auto getLogicalDevice()                       noexcept -> vk::raii::Device&              { return device_; }
-    [[nodiscard]] auto getQueue()          const noexcept -> vk::raii::Queue const&          { return queue_; }
-    [[nodiscard]] auto getCommandpool()    const noexcept -> vk::raii::CommandPool const&    { return commandPool_; }
-    [[nodiscard]] auto getQueueIndex()     const noexcept -> u32                             { return queueIndex_; }
+    [[nodiscard]] auto getInstance()           const noexcept -> vk::raii::Instance const&       { return instance_; }
+    [[nodiscard]] auto getPhysicalDevice()     const noexcept -> vk::raii::PhysicalDevice const& { return physicalDevice_; }
+    auto getLogicalDevice()                    const noexcept -> vk::raii::Device const&         { return device_; }
+    auto getLogicalDevice()                          noexcept -> vk::raii::Device&               { return device_; }
+    [[nodiscard]] auto getGraphicsQueue()      const noexcept -> vk::raii::Queue const&          { return graphicsQueue_; }
+    [[nodiscard]] auto getComputeQueue()       const noexcept -> vk::raii::Queue const&          { return computeQueue_; }
+    [[nodiscard]] auto getTransferQueue()      const noexcept -> vk::raii::Queue const&          { return transferQueue_; }
+    [[nodiscard]] auto getCommandpool()        const noexcept -> vk::raii::CommandPool const&    { return commandPool_; }
+    [[nodiscard]] auto getGraphicsQueueIndex() const noexcept -> u32 const&                      { return graphicsQueueIndex_; }
+    [[nodiscard]] auto getTransferQueueIndex() const noexcept -> u32 const&                      { return transferQueueIndex_; }
+    [[nodiscard]] auto getComputeQueueIndex()  const noexcept -> u32 const&                      { return computeQueueIndex_; }
 private:
     auto createInstance() -> void {
         // The vulkan context serves as the initial bootstrapping object that manages lifetimes of the dynamic loader
@@ -101,8 +109,7 @@ private:
             messageSeverity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eError   ||
             messageSeverity & vk::DebugUtilsMessageSeverityFlagBitsEXT::eInfo    ||
             messageTypes    & vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation  ||
-            messageTypes    & vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance ||
-            messageTypes    & vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral ) {
+            messageTypes    & vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance) {
 
             std::println(stderr, "[VULKAN] {}", pCallbackData->pMessage);
         }
@@ -119,8 +126,7 @@ private:
 
         vk::Flags<vk::DebugUtilsMessageTypeFlagBitsEXT> messageType =
             vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation |
-            vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
-            vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation;
+            vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance;
 
         vk::DebugUtilsMessengerCreateInfoEXT createInfo {};
         createInfo
@@ -186,30 +192,119 @@ private:
         return false;
     }
 
-    auto createLogicalDevice() -> void {
-        // Since I now have a physical device, I create a logical device out of it and pull out required queues
-        auto queueFamilyProperties = physicalDevice_.getQueueFamilyProperties();
-
+    auto chooseGraphicsQueue(std::vector<vk::QueueFamilyProperties> const& queueFamilyProperties) -> void {
+        u32 not_graphics_dedicated = ~0;
         for (u32 i = 0; i < queueFamilyProperties.size(); i++) {
-            // Check for presentation capability in swapchain module
-            if (queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eCompute &&
-                queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eGraphics)
+            if ((queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eGraphics) &&
+               !(queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eCompute))
             {
-                queueIndex_ = i;
+                graphicsQueueIndex_ = i;
                 break;
+            }
+
+            if (queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eGraphics){
+                not_graphics_dedicated = i;
             }
         }
 
-        if (queueIndex_ == ~0) {
-            throw std::runtime_error("[ERR] Could not find queues with required props");
+        if (graphicsQueueIndex_ == ~0 && not_graphics_dedicated == ~0) {
+            throw std::runtime_error("[ERR] GRAPHICS QUEUE NOT FOUND!!!!");
         }
 
-        std::vector<f32> queuePriorities = {0.5f};
-        vk::DeviceQueueCreateInfo queueCreateInfo{};
-        queueCreateInfo
-            .setQueueFamilyIndex(queueIndex_)
-            .setQueueCount(1u)
-            .setPQueuePriorities(queuePriorities.data());
+        if (graphicsQueueIndex_ == ~0) {
+            graphicsQueueIndex_ = not_graphics_dedicated;
+            std::println(stderr, "[LOG] DEDICATED GRAPHICS QUEUE NOT FOUND! Falling back to mixed queue");
+        }
+    }
+
+    auto chooseComputeQueue(std::vector<vk::QueueFamilyProperties> const& queueFamilyProperties) -> void {
+        u32 not_compute_dedicated = ~0;
+        for (u32 i = 0; i < queueFamilyProperties.size(); i++) {
+            if (!(queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eGraphics) &&
+                 (queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eCompute))
+            {
+                computeQueueIndex_ = i;
+                break;
+            }
+
+            if (queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eCompute) {
+                not_compute_dedicated = i;
+            }
+        }
+
+        if (computeQueueIndex_ == ~0) {
+            std::println(stderr, "[LOG] DEDICATED COMPUTE QUEUE NOT FOUND. falling back to mixed queue");
+            computeQueueIndex_ = not_compute_dedicated;
+        }
+    }
+
+    auto chooseTransferQueue(std::vector<vk::QueueFamilyProperties> const& queueFamilyProperties) -> void {
+        u32 graphics_transfer = ~0;
+        u32 compute_transfer  = ~0;
+
+        for (u32 i = 0; i < queueFamilyProperties.size(); i++) {
+            if (!(queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eGraphics) &&
+                !(queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eCompute)  &&
+                 (queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eTransfer))
+            {
+                transferQueueIndex_= i;
+                break;
+            }
+
+            if ((queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eTransfer) &&
+                (queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eCompute)) {
+                compute_transfer = i;
+            }
+
+            if ((queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eTransfer) &&
+                (queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eGraphics)) {
+                graphics_transfer = i;
+            }
+        }
+
+        if (transferQueueIndex_ == ~0) {
+            std::println(stderr, "[LOG] DEDICATED TRANSFER QUEUE NOT FOUND. falling back to mixed queue");
+            transferQueueIndex_ = (graphics_transfer == ~0) ? compute_transfer : graphics_transfer;
+        }
+    }
+
+    auto chooseQueueFamilies() -> void {
+        auto queueFamilyProperties = physicalDevice_.getQueueFamilyProperties();
+        queueCountPerFamily.resize(queueFamilyProperties.size());
+
+        for (u32 i = 0; i < queueFamilyProperties.size(); ++i) {
+            queueCountPerFamily[i] = queueFamilyProperties[i].queueCount;
+            std::println("Queue count: {}", queueCountPerFamily[i]);
+        }
+
+        chooseGraphicsQueue(queueFamilyProperties);
+        chooseComputeQueue(queueFamilyProperties);
+        chooseTransferQueue(queueFamilyProperties);
+    }
+
+    auto createLogicalDevice() -> void {
+        std::array<u32, 3> queueIndices = {graphicsQueueIndex_, computeQueueIndex_, transferQueueIndex_};
+
+        // Group queues in the same family
+        std::unordered_map<u32, u32> family_grouping{};
+        for (auto const& i : queueIndices) {
+            family_grouping[i]++;
+        }
+
+        // Priority for each queue 1.f for now
+        std::vector<std::vector<f32>> queuePriorities(queueCountPerFamily.size());
+        for (auto const& queue : family_grouping) {
+            u32 queue_index = queue.first;
+            u32 queue_count = std::min<u32>(queue.second, queueCountPerFamily[queue.first]);
+            queuePriorities[queue_index].assign(queue_count, 1.f);
+
+            vk::DeviceQueueCreateInfo queueCreateInfo{};
+            queueCreateInfo
+                .setQueueFamilyIndex(queue_index)
+                .setQueueCount(queue_count)
+                .setPQueuePriorities(queuePriorities[queue_index].data());
+            queueCreateInfos.push_back(queueCreateInfo);
+        }
 
         vk::StructureChain<
             vk::PhysicalDeviceFeatures2,
@@ -217,6 +312,7 @@ private:
             vk::PhysicalDeviceVulkan13Features,
             vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT> featureChain{};
 
+        featureChain.template get<vk::PhysicalDeviceFeatures2>().features.setSamplerAnisotropy(vk::True);
         featureChain.template get<vk::PhysicalDeviceVulkan11Features>().setShaderDrawParameters(vk::True);
         featureChain.template get<vk::PhysicalDeviceVulkan13Features>().setDynamicRendering(vk::True);
         // Makes CPU side code much less error prone. gives pipelineBarrier2, submitInfo2, semaphoreInfo
@@ -225,36 +321,61 @@ private:
 
         vk::DeviceCreateInfo deviceCreateInfo{};
         deviceCreateInfo
-            .setQueueCreateInfoCount(1u)
-            .setPQueueCreateInfos(&queueCreateInfo)
+            .setQueueCreateInfoCount(queueCreateInfos.size())
+            .setPQueueCreateInfos(queueCreateInfos.data())
             .setPNext(&featureChain.template get<vk::PhysicalDeviceFeatures2>())
             .setEnabledExtensionCount(static_cast<u32>(deviceExtensions_.size()))
             .setPpEnabledExtensionNames(deviceExtensions_.data());
 
-        device_ = vk::raii::Device(physicalDevice_, deviceCreateInfo);
-        queue_  = vk::raii::Queue(device_, queueIndex_, 0);
-        std::println(stderr, "[LOG] Created physical device and queue!");
+        device_            = vk::raii::Device(physicalDevice_, deviceCreateInfo);
+        graphicsQueue_     = vk::raii::Queue(device_, graphicsQueueIndex_, 0);
+
+        u32 compute_offset = (computeQueueIndex_ == graphicsQueueIndex_) ? 1 : 0;
+        computeQueue_      = vk::raii::Queue(device_, computeQueueIndex_, compute_offset);
+
+        u32 transfer_offset = (transferQueueIndex_ == graphicsQueueIndex_) ? 2 : 0;
+        transferQueue_      = vk::raii::Queue(device_, transferQueueIndex_, transfer_offset);
+
+        std::println(stderr, "[LOG] Created logical device and queues!");
     }
 
     auto createCommandPool() -> void {
         vk::CommandPoolCreateInfo createInfo{};
         createInfo
-            .setQueueFamilyIndex(queueIndex_)
+            .setQueueFamilyIndex(graphicsQueueIndex_)
             .setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer);
 
         commandPool_ = vk::raii::CommandPool(device_, createInfo);
         std::println(stderr, "[LOG] Created command pool!");
     }
 
+    auto createTransferCommandPool() -> void {
+        vk::CommandPoolCreateInfo createInfo{};
+        createInfo
+            .setQueueFamilyIndex(transferQueueIndex_)
+            .setFlags(vk::CommandPoolCreateFlagBits::eResetCommandBuffer);
+
+        transferCommandPool_ = vk::raii::CommandPool(device_, createInfo);
+        std::println(stderr, "[LOG] Created transfer command pool!");
+    }
 private:
     vk::raii::Context context_{};
-    vk::raii::Instance               instance_       = nullptr;
-    vk::raii::DebugUtilsMessengerEXT debugMessenger_ = nullptr;
-    vk::raii::PhysicalDevice         physicalDevice_ = nullptr;
-    vk::raii::Device                 device_         = nullptr;
-    vk::raii::Queue                  queue_          = nullptr;
-    vk::raii::CommandPool            commandPool_    = nullptr;
-    u32 queueIndex_ = ~0;
+    vk::raii::Instance               instance_            = nullptr;
+    vk::raii::DebugUtilsMessengerEXT debugMessenger_      = nullptr;
+    vk::raii::PhysicalDevice         physicalDevice_      = nullptr;
+    vk::raii::Device                 device_              = nullptr;
+    vk::raii::Queue                  graphicsQueue_       = nullptr;
+    vk::raii::Queue                  computeQueue_        = nullptr;
+    vk::raii::Queue                  transferQueue_       = nullptr;
+    vk::raii::CommandPool            commandPool_         = nullptr;
+    vk::raii::CommandPool            transferCommandPool_ = nullptr;
+
+    u32 graphicsQueueIndex_ = ~0;
+    u32 transferQueueIndex_ = ~0;
+    u32 computeQueueIndex_  = ~0;
+
+    std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos{};
+    std::vector<u32> queueCountPerFamily{};
 
     bool enableValidation_{};
     std::vector<char const*> layers_{};

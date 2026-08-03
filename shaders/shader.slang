@@ -1,6 +1,6 @@
 struct VSInput {
-    float2 inPosition;
-    float3 inColor;
+    [[vk::location(0)]] float2 inPosition;
+    [[vk::location(1)]] float3 inColor;
 };
 
 struct VSOutput {
