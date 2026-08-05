@@ -7,18 +7,19 @@ module;
 #include <stdexcept>
 #include <vector>
 #include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_raii.hpp>
 #include <print>
 
 export module frameRenderer;
 
 import types;
-import context;
+import Context;
 import swapchain;
 import pipeline;
 import math;
 
-#define MAX_FRAMES_INFLIGHT 2
+constexpr usize MAX_FRAMES_INFLIGHT =  2;
 
 std::vector<Vertex> const vertices {
     {.pos = {0.f, -0.5f},  .color = {1.f, 0.f, 0.f}},
@@ -52,33 +53,71 @@ public:
         app->framebufferResized = true;
     }
 private:
-    auto createVertexBuffer() -> void {
-        vk::BufferCreateInfo bufferCreateInfo{};
-        bufferCreateInfo
-            .setSize(sizeof(vertices[0]) * vertices.size()) // size of buffer in bytes
-            .setUsage(vk::BufferUsageFlagBits::eVertexBuffer) // purpose of the buffer
-            .setSharingMode(vk::SharingMode::eExclusive); // no concurrency
+    auto createBuffer(vk::DeviceSize buffer_size, vk::BufferUsageFlags usage_bits, vk::MemoryPropertyFlags propertyFlags) -> std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> {
+        // create buffer
+        vk::BufferCreateInfo createInfo{};
+        createInfo
+            .setSharingMode(vk::SharingMode::eExclusive)
+            .setSize(buffer_size)
+            .setUsage(usage_bits);
 
-        vertexBuffer_ = vk::raii::Buffer(context_.getLogicalDevice(), bufferCreateInfo);
+        vk::raii::Buffer buffer(context_.getLogicalDevice(), createInfo);
 
-        vk::MemoryRequirements memReqs = vertexBuffer_.getMemoryRequirements();
-
-        vk::MemoryAllocateInfo memAllocInfo{};
-        memAllocInfo
+        // get memory reqs
+        vk::MemoryRequirements memReqs = buffer.getMemoryRequirements();
+        vk::MemoryAllocateInfo allocInfo{};
+        allocInfo
             .setAllocationSize(memReqs.size)
-            .setMemoryTypeIndex(swapchain_.findMemoryType(memReqs.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent));
+            .setMemoryTypeIndex(swapchain_.findMemoryType(memReqs.memoryTypeBits, propertyFlags));
 
-        vertexBufferMemory_ = vk::raii::DeviceMemory(context_.getLogicalDevice(), memAllocInfo);
-        vertexBuffer_.bindMemory(*vertexBufferMemory_, 0u);
+        vk::raii::DeviceMemory memory(context_.getLogicalDevice(), allocInfo);
+        // bind buffer to resource
+        buffer.bindMemory(*memory, 0);
 
-        // Copying the vertex data into the buffer
-        void* data = vertexBufferMemory_.mapMemory(0, bufferCreateInfo.size);
-        // the above function gives us access to a region of specified memory
-        memcpy(data, vertices.data(), bufferCreateInfo.size);
-        vertexBufferMemory_.unmapMemory();
+        return {std::move(buffer), std::move(memory)};
+    }
 
-        // the driver may not immediately copy the data into the buffer memory due to some reasons.
-        // see vertex buffer docs why and how to fix that
+    auto copyBuffer(vk::raii::Buffer& srcBuffer, vk::raii::Buffer& dstBuffer, vk::DeviceSize size) -> void {
+        vk::CommandBufferAllocateInfo allocInfo{};
+        allocInfo
+            .setCommandPool(context_.getCommandpool())
+            .setLevel(vk::CommandBufferLevel::ePrimary)
+            .setCommandBufferCount(1u);
+
+        vk::raii::CommandBuffer command_copy_buffer = std::move(context_.getLogicalDevice().allocateCommandBuffers(allocInfo).front());
+        command_copy_buffer.begin({vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
+        command_copy_buffer.copyBuffer(*srcBuffer, *dstBuffer, vk::BufferCopy(0, 0, size));
+        command_copy_buffer.end();
+
+        vk::SubmitInfo submitInfo{};
+        submitInfo
+            .setCommandBufferCount(1u)
+            .setPCommandBuffers(&*command_copy_buffer);
+
+        context_.getGraphicsQueue().submit(submitInfo, nullptr);
+        context_.getGraphicsQueue().waitIdle();
+    }
+
+    auto createVertexBuffer() -> void {
+        vk::DeviceSize buffer_size = sizeof(vertices[0]) * vertices.size();
+
+        auto [staging_vertex_buffer, staging_buffer_memory] = createBuffer(
+            buffer_size,
+            vk::BufferUsageFlagBits::eTransferSrc, // memory used as transfer source location
+            vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible
+        );
+
+        void* data = staging_buffer_memory.mapMemory(0u, buffer_size);
+        memcpy(data, vertices.data(), buffer_size);
+        staging_buffer_memory.unmapMemory();
+
+        std::tie(vertexBuffer_, vertexBufferMemory_) = createBuffer(
+            buffer_size,
+            vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eTransferDst, // memory used as transfer destination location
+            vk::MemoryPropertyFlagBits::eDeviceLocal
+        );
+        copyBuffer(staging_vertex_buffer, vertexBuffer_, buffer_size);
+        std::println("[LOG] Vertex buffer created and copied!");
     }
 
     auto createCommandBuffer() -> void {
@@ -86,7 +125,7 @@ private:
         allocInfo
             .setCommandPool(context_.getCommandpool())
             .setLevel(vk::CommandBufferLevel::ePrimary)
-            .setCommandBufferCount(static_cast<u32>(swapchain_.getImages().size()));
+            .setCommandBufferCount(static_cast<u32>(MAX_FRAMES_INFLIGHT));
         commandBuffer_ = std::move(vk::raii::CommandBuffers(context_.getLogicalDevice(), allocInfo));
         std::println("[LOG] Created command buffer!");
     }
@@ -192,6 +231,7 @@ private:
         usize sz = swapchain_.getImages().size();
         // Creates a semaphore per swachain image.
         // Each of these will be signaled by 'acquireNextImage' at runtime when a swapchain image is ready to render into
+        presentCompleteSemaphores_.reserve(MAX_FRAMES_INFLIGHT);
         for (usize i = 0; i < sz; i++) {
             presentCompleteSemaphores_.emplace_back(context_.getLogicalDevice(), semaphoreInfo);
         }
@@ -199,6 +239,8 @@ private:
         // Also creates a semaphore per swapchain image
         // each will be singlaed by 'queueSubmit' at runtime when rendering is done.
         // the presenter will then know it is safe to show the image
+        renderFinishedSemaphores_.reserve(swapchain_.getImages().size());
+        inflightFences_.reserve(MAX_FRAMES_INFLIGHT);
         for (usize i = 0; i < sz; i++) {
             renderFinishedSemaphores_.emplace_back(context_.getLogicalDevice(), semaphoreInfo);
             inflightFences_.emplace_back(context_.getLogicalDevice(), fenceInfo);
@@ -345,16 +387,12 @@ private:
 
     std::vector<vk::raii::CommandBuffer> commandBuffer_{};
 
-//    vk::raii::Semaphore presentCompleteSemaphore_ = nullptr;
-//    vk::raii::Semaphore renderFinishedSemaphore_  = nullptr;
-    std::vector<vk::raii::Semaphore> presentCompleteSemaphores_{};
-    std::vector<vk::raii::Semaphore> renderFinishedSemaphores_{};
+    std::vector<vk::raii::Semaphore> presentCompleteSemaphores_;
+    std::vector<vk::raii::Semaphore> renderFinishedSemaphores_;
     std::vector<vk::raii::Fence>     inflightFences_{};
     u32 currentFrame_{};
     bool framebufferResized = false;
 
     vk::raii::Buffer              vertexBuffer_       = nullptr;
     vk::raii::DeviceMemory        vertexBufferMemory_ = nullptr;
-
-
 };

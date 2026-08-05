@@ -15,7 +15,7 @@ module;
 
 export module swapchain;
 
-import context;
+import Context;
 import types;
 
 export class Swapchain {
@@ -28,7 +28,6 @@ public:
             createImageViews();
             createDepthImage();
             createDepthImageView();
-            depthLayoutTransition();
         }
 
     Swapchain(Swapchain const& o) = delete;
@@ -72,13 +71,14 @@ public:
         /* We would have the necessity to recreate the swapchain for example if there has been a change
            in the window size i.e window resize, we should catch that event and recreate the swap chain*/
         context_.getLogicalDevice().waitIdle();
-        cleanupSwapchain(); // clear all the image views and cleanup the old swapchain
 
-        createSwapchain();
+        vk::raii::SwapchainKHR oldSwapchain = std::move(swapchain_);
+
+        cleanupSwapchain(); // clear all the image views and cleanup the old swapchain
+        createSwapchain(&oldSwapchain);
         createImageViews(); // we create views on the images that the swapchain creates
         createDepthImage();
         createDepthImageView();
-        depthLayoutTransition();
     }
 
 private:
@@ -142,7 +142,7 @@ private:
         return {minImageCount, presentMode};
     }
 
-    auto createSwapchain() -> void {
+    auto createSwapchain(vk::raii::SwapchainKHR const* oldSwapchain = nullptr) -> void {
         // Physical device must have surfacce support
         assert(context_.getPhysicalDevice().getSurfaceSupportKHR(context_.getGraphicsQueueIndex(), *surface_) && "[ERR] Physical Device does not have surface support!");
 
@@ -151,23 +151,21 @@ private:
         auto [minImageCount, presentModes] = getCapabilities();
         vk::SwapchainCreateInfoKHR swapchainCreateInfo{};
         swapchainCreateInfo
+            .setPresentMode(presentModes)
             .setSurface(*surface_)
             .setMinImageCount(minImageCount)
             .setImageFormat(surfaceFormat_.format)
             .setImageColorSpace(surfaceFormat_.colorSpace)
-            //.setImageExtent(swapchainExtent_)
             .setImageExtent({
                 swapchainExtent_.width,
                 swapchainExtent_.height
             })
             .setImageArrayLayers(1u)
             .setImageUsage(vk::ImageUsageFlagBits::eColorAttachment)
-            .setImageSharingMode(vk::SharingMode::eExclusive)
+            .setImageSharingMode(vk::SharingMode::eExclusive) // assuming presentQueueIndex is the same as graphics
             .setPreTransform(surfaceCapabilities.currentTransform)
             .setClipped(vk::True)
-            .setOldSwapchain(nullptr)
-            // controls how alpha composition is handled by the window system
-            // With eQpaque, the alpha channel is ignored and treated as though it contains constants 1.0
+            .setOldSwapchain((oldSwapchain && **oldSwapchain) ? **oldSwapchain : nullptr)
             .setCompositeAlpha(vk::CompositeAlphaFlagBitsKHR::eOpaque);
             // queueIndex and ptr are to be used when sharing mode is concurrent
 
@@ -177,7 +175,6 @@ private:
     }
 
     auto createImageViews() -> void {
-        // Image views are what we use to interpret the image data
         vk::ImageViewCreateInfo imageViewCreateInfo{};
         imageViewCreateInfo
             .setViewType(vk::ImageViewType::e2D)
@@ -191,6 +188,7 @@ private:
                 1
             });
 
+        swapchainImageViews_.reserve(swapchainImages_.size());
         for (auto& image : swapchainImages_) {
             imageViewCreateInfo.setImage(image);
             swapchainImageViews_.emplace_back(std::move(vk::raii::ImageView(context_.getLogicalDevice(), imageViewCreateInfo)));
@@ -211,11 +209,8 @@ private:
             .setExtent({swapchainExtent_.width, swapchainExtent_.height, 1u}); // vulkan expects depth to be greater than 1
 
         depthImage_ = vk::raii::Image(context_.getLogicalDevice(), createInfo);
-        /* Presentation images / images in swap chain do not require us to explicitly create memory for them
-          The swap chain and the WSI manage the memory requirements. However, for the depth buffer, it
-          is an individual buffer we create seperately so we need to allocate memory for it in the device and
-          ofc bind it to that resource */
 
+        // create memory for the depth buffer
         vk::MemoryRequirements memReqs = depthImage_.getMemoryRequirements();
         vk::MemoryAllocateInfo allocInfo{};
         allocInfo
@@ -245,54 +240,6 @@ private:
             });
         depthImageView_ = vk::raii::ImageView(context_.getLogicalDevice(), createInfo);
         std::println(stderr, "[LOG] Created Depth image view!");
-    }
-
-    auto depthLayoutTransition() -> void {
-        /* Before an image can be presented, it must be in the correct layout. This state is the VK_IMAGE_LAYOUT_PRESENT_SRC_KHR layout.
-         * Images are transitioned from layout to layout using image memory barriers.
-         * The mechanism for changing the layout of an image is known as a `pipeline barrier`, or simply a
-           barrier. A barrier not only serves as a means to change the layout of a resource but can also
-           synchronize access to that resource by different stages in the Vulkan pipeline and even by different
-           queues running concurrently on the same device. */
-        vk::CommandBufferAllocateInfo allocInfo{};
-        allocInfo
-            .setCommandPool(context_.getCommandpool())
-            .setLevel(vk::CommandBufferLevel::ePrimary)
-            .setCommandBufferCount(1u);
-
-        vk::raii::CommandBuffer cmdBuf = std::move(vk::raii::CommandBuffers(context_.getLogicalDevice(), allocInfo).front());
-        cmdBuf.begin(vk::CommandBufferBeginInfo{ vk::CommandBufferUsageFlagBits::eOneTimeSubmit });
-
-        vk::ImageMemoryBarrier2 barrier{};
-        barrier
-            .setImage(depthImage_)
-            .setSrcStageMask(vk::PipelineStageFlagBits2::eTopOfPipe)
-            .setDstStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests)
-            .setSrcAccessMask(vk::AccessFlags2{})
-            .setDstAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentRead | vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
-            .setOldLayout(vk::ImageLayout::eUndefined)
-            .setNewLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal)
-            .setSubresourceRange({
-                vk::ImageAspectFlagBits::eDepth,
-                0,
-                1,
-                0,
-                1
-            })
-            .setSrcQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED)
-            .setDstQueueFamilyIndex(VK_QUEUE_FAMILY_IGNORED);
-
-        vk::DependencyInfo depInfo{};
-        depInfo.setImageMemoryBarriers(barrier);
-        cmdBuf.pipelineBarrier2(depInfo);
-        cmdBuf.end();
-
-        vk::SubmitInfo submitInfo{};
-        submitInfo.setCommandBuffers(*cmdBuf);
-        context_.getGraphicsQueue().submit(submitInfo);
-        context_.getGraphicsQueue().waitIdle();
-
-        std::println(stderr, "[LOG] Depth buffer layout transitioned!");
     }
 private:
     VulkanContext const& context_;

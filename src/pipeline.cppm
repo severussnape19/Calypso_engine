@@ -9,7 +9,7 @@ module;
 export module pipeline;
 
 import types;
-import context;
+import Context;
 import swapchain;
 import math;
 
@@ -45,8 +45,6 @@ export struct Vertex {
         return {des1, des2};
     }
 };
-
-;
 
 /* owns shader modules, Descriptor set layouts, pipeline layout and ofc the object itself */
 export class Pipeline {
@@ -229,6 +227,4 @@ private:
     vk::raii::PipelineLayout      pipelineLayout_      = nullptr;
     vk::raii::Pipeline            graphicsPipeline_    = nullptr;
     vk::raii::DescriptorSetLayout descriptorSetLayout_ = nullptr;
-
-
 };

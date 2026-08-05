@@ -1,18 +1,14 @@
 module;
 
-#include "vulkan/vulkan.hpp"
 #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <print>
-#include <set>
 #include <stdexcept>
 #include <string_view>
 #include <unordered_map>
-#include <vulkan/vulkan.hpp>
-#include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_raii.hpp>
 
-export module context;
+export module Context;
 import types;
 
 /* This class owns all the mostly stable / static objects i.e things that exist once for the lifetime of the app.
