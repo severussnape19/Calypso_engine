@@ -8,6 +8,7 @@ use raw_window_handle::HasWindowHandle;
 use winit::{self, application::ApplicationHandler, event::WindowEvent, event_loop::{ControlFlow, EventLoop}, window::Window};
 
 mod vulkan_context;
+mod swapchain;
 use vulkan_context::VulkanContext;
 mod macros;
 

@@ -1,21 +1,24 @@
 use std::{ collections::{HashMap, HashSet}, error::Error, ffi::{CStr, CString}, hash::Hash, os::raw::c_void, result};
 use crate::{log, warn};
-use ash::{ Entry, ext::{acquire_drm_display::Instance, debug_utils, extended_dynamic_state}, vk::{self, DebugUtilsMessengerCreateInfoEXT, QueueFamilyProperties} };
+use ash::{ Entry, ext::{acquire_drm_display::Instance, debug_utils, extended_dynamic_state}, khr::surface, vk::{self, DebugUtilsMessengerCreateInfoEXT, QueueFamilyProperties} };
 use raw_window_handle::HasWindowHandle;
 use winit::{self, application::ApplicationHandler, dpi::PixelUnit::Physical, event::WindowEvent, event_loop::{ControlFlow, EventLoop}, window::Window};
 use winit::raw_window_handle::HasDisplayHandle;
 
 pub struct QueueInfos {
-    graphics_queue_index: u32,
-    transfer_queue_index: u32,
-    graphics_queue: ash::vk::Queue,
-    transfer_queue: ash::vk::Queue
+    pub graphics_queue_index: u32,
+    pub transfer_queue_index: u32,
+    pub graphics_queue: ash::vk::Queue,
+    pub transfer_queue: ash::vk::Queue
 }
 
 pub struct VulkanContext {
     pub entry: ash::Entry,
     pub instance: ash::Instance,
+    pub debug_loader: debug_utils::Instance,
     pub debug_messenger: vk::DebugUtilsMessengerEXT,
+    pub surface_loader: surface::Instance,
+    pub surface: vk::SurfaceKHR,
     pub physical_device: ash::vk::PhysicalDevice,
     pub queues: QueueInfos,
     pub device: ash::Device
@@ -37,14 +40,31 @@ pub unsafe extern "system" fn debug_callback(
 
 impl VulkanContext {
     pub fn new(window: &Window) -> Result<Self, Box<dyn Error>> {
-        let (entry, instance, debug_messenger): (ash::Entry, ash::Instance, vk::DebugUtilsMessengerEXT) = Self::create_instance(window)?;
+        let (entry, instance, debug_loader, debug_messenger) = Self::create_instance(window)?;
         let physical_device: ash::vk::PhysicalDevice = Self::pick_physical_device(&instance)?;
         let (queue_infos, device): (QueueInfos, ash::Device) = Self::create_logical_device(&instance, &physical_device)?;
+
+        let window_handle = window.window_handle()?.as_raw();
+        let display_handle = window.display_handle()?.as_raw();
+
+        let surface_loader = ash::khr::surface::Instance::new(&entry, &instance);
+        let surface = unsafe {
+            ash_window::create_surface(
+                &entry,
+                &instance,
+                display_handle,
+                window_handle,
+                None
+            )?
+        };
 
         Ok( VulkanContext {
             entry,
             instance,
+            debug_loader,
             debug_messenger,
+            surface_loader,
+            surface,
             physical_device,
             queues: queue_infos,
             device
@@ -65,7 +85,7 @@ impl VulkanContext {
             .pfn_user_callback(Some(debug_callback))
     }
 
-    fn create_instance(window: &winit::window::Window) -> Result<(ash::Entry, ash::Instance, vk::DebugUtilsMessengerEXT), Box<dyn Error>> {
+    fn create_instance(window: &winit::window::Window) -> Result<(ash::Entry, ash::Instance, debug_utils::Instance, vk::DebugUtilsMessengerEXT), Box<dyn Error>> {
         let entry = unsafe { Entry::load()? };
         let engine_name = CString::new("Calypso Engine").unwrap();
 
@@ -121,10 +141,10 @@ impl VulkanContext {
 
         let instance = unsafe { entry.create_instance(&create_info, None)? };
 
-        let debug_loader= debug_utils::Instance::new(&entry, &instance);
+        let debug_loader = debug_utils::Instance::new(&entry, &instance);
         let debug_messenger = unsafe { debug_loader.create_debug_utils_messenger(&debug_utils_info, None)? };
         log!(INFO, "Instance and debug messenger created!");
-        Ok((entry, instance, debug_messenger))
+        Ok((entry, instance, debug_loader, debug_messenger))
     }
 
     fn pick_physical_device(instance: &ash::Instance) -> Result<ash::vk::PhysicalDevice, Box<dyn Error>> {
@@ -257,5 +277,16 @@ impl VulkanContext {
         };
         log!(INFO, "Created queues and device!");
         Ok((queue_infos, device))
+    }
+}
+
+impl Drop for VulkanContext {
+    fn drop(&mut self) {
+        unsafe {
+            self.device.destroy_device(None);
+            self.surface_loader.destroy_surface(self.surface, None);
+            self.debug_loader.destroy_debug_utils_messenger(self.debug_messenger, None);
+            self.instance.destroy_instance(None);
+        }
     }
 }
