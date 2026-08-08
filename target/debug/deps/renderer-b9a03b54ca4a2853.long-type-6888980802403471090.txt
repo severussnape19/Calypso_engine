@@ -1,0 +1,1 @@
+for<'a> unsafe extern "system" fn(ash::vk::DebugUtilsMessageSeverityFlagsEXT, ash::vk::DebugUtilsMessageTypeFlagsEXT, *const ash::vk::DebugUtilsMessengerCallbackDataEXT<'a>, *mut std::ffi::c_void) -> u32
