@@ -9,6 +9,7 @@ target/
 # CMake
 compile_commands.json
 CMakeUserPresets.json
+Cargo.lock
 
 # Generated shader binaries
 shaders/*.spv
