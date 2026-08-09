@@ -21,7 +21,7 @@ pub struct VulkanContext {
     pub surface: vk::SurfaceKHR,
     pub physical_device: ash::vk::PhysicalDevice,
     pub queues: QueueInfos,
-    pub device: ash::Device
+    pub device: ash::Device,
 }
 
 pub unsafe extern "system" fn debug_callback(

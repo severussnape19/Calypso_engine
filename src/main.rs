@@ -10,12 +10,16 @@ use winit::{self, application::ApplicationHandler, event::WindowEvent, event_loo
 mod vulkan_context;
 mod swapchain;
 use vulkan_context::VulkanContext;
+
+use crate::swapchain::Swapchain;
+
 mod macros;
 
 #[derive(Default)]
 struct App {
     window: Option<Window>,
-    vulkan: Option<VulkanContext>
+    vulkan: Option<VulkanContext>,
+    swapchain: Option<swapchain::Swapchain>
 }
 
 impl ApplicationHandler for App {
@@ -25,18 +29,27 @@ impl ApplicationHandler for App {
             let attrs = Window::default_attributes().with_title("calypso");
             let window = event_loop.create_window(attrs).unwrap();
 
-            match VulkanContext::new(&window) {
-                Ok(vulkan) => {
-                    self.vulkan = Some(vulkan);
-                }
+            let vulkan = match VulkanContext::new(&window) {
+                Ok(vulkan) => vulkan,
                 Err(e) => {
                     eprintln!("[ERR] Failed to initialize vulkan: {e}");
                     event_loop.exit();
                     return;
                 }
-            }
+            };
+
+            let swapchain = match Swapchain::new(&vulkan) {
+                Ok(sc) => sc,
+                Err(e) => {
+                    eprintln!("[ERR] Failed to create swapchain!");
+                    event_loop.exit();
+                    return;
+                }
+            };
 
             self.window = Some(window);
+            self.vulkan = Some(vulkan);
+            self.swapchain = Some(swapchain)
         }
     }
 
