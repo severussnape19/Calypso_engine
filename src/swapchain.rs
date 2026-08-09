@@ -2,7 +2,7 @@ use std::{error::Error, mem::swap};
 
 use ash::khr::{get_surface_capabilities2, swapchain};
 
-use crate::{log, vulkan_context::{self, QueueInfos, VulkanContext}};
+use crate::{log, vulkan_context::{self, DeviceQueues, VulkanContext}};
 
 pub struct SwapchainConfig {
     pub min_image_count: u32,
@@ -15,19 +15,22 @@ pub struct SwapchainConfig {
 pub struct Swapchain {
     pub loader: ash::khr::swapchain::Device,
     pub handle: ash::vk::SwapchainKHR,
-    pub images: Vec<ash::vk::Image>,
     pub config: SwapchainConfig,
+    pub images: Vec<ash::vk::Image>,
+    pub image_views: Vec<ash::vk::ImageView>,
 }
 
 impl Swapchain {
     pub fn new(context: &vulkan_context::VulkanContext) -> Result<Self, Box<dyn Error>> {
         let device_loader = unsafe { ash::khr::swapchain::Device::new(&context.instance, &context.device) };
         let (swapchain_config, swapchain, images) = Self::create_swapchain(context, &device_loader, None)?;
+        let image_views: Vec<ash::vk::ImageView> = Self::create_swapchain_image_views(context, &images, &swapchain_config)?;
         Ok(Swapchain {
             loader: device_loader,
             handle: swapchain,
             config: swapchain_config,
-            images
+            images,
+            image_views,
         })
     }
 
@@ -40,7 +43,7 @@ impl Swapchain {
             if !ash::khr::surface::Instance::get_physical_device_surface_support(
                     &context.surface_loader,
                     context.physical_device,
-                    context.queues.graphics_queue_index,
+                    context.queues.graphics_family,
                     context.surface)?
             {
                 return Err("[ERR] Could not find surface support for the current device!".into());
@@ -141,7 +144,43 @@ impl Swapchain {
         })
     }
 
-    fn create_swapchain_images(swapchain_config: &SwapchainConfig) {
+    fn create_swapchain_image_views(
+        context: &VulkanContext,
+        swapchain_images: &Vec<ash::vk::Image>,
+        swapchain_config: &SwapchainConfig
+    ) -> Result<Vec<ash::vk::ImageView>, Box<dyn Error>> {
 
+        let mut image_views: Vec<ash::vk::ImageView> = vec![];
+        for image in swapchain_images {
+            let image_view_create_info = ash::vk::ImageViewCreateInfo::default()
+                .image(*image)
+                .format(swapchain_config.surface_format.format)
+                .view_type(ash::vk::ImageViewType::TYPE_2D)
+                .components(ash::vk::ComponentMapping::default())
+                .subresource_range(ash::vk::ImageSubresourceRange{
+                    aspect_mask: ash::vk::ImageAspectFlags::COLOR,
+                    base_mip_level: 0,
+                    level_count: 1,
+                    base_array_layer: 0,
+                    layer_count: 1
+                });
+
+            image_views.push(unsafe { context.device.create_image_view(&image_view_create_info, None)? });
+        }
+
+        log!(INFO, "Created Swapchain Image Views!");
+        Ok(image_views)
+    }
+
+    pub unsafe fn destroy(&mut self, device: &ash::Device) {
+        for view in &self.image_views {
+            unsafe { device.destroy_image_view(*view, None) };
+        }
+        self.image_views.clear();
+
+        if self.handle != ash::vk::SwapchainKHR::null() {
+            unsafe { self.loader.destroy_swapchain(self.handle, None) };
+            self.handle = ash::vk::SwapchainKHR::null();
+        }
     }
 }

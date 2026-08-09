@@ -22,6 +22,28 @@ struct App {
     swapchain: Option<swapchain::Swapchain>
 }
 
+impl App {
+    fn destroy_vulkan_resources(&mut self) {
+        let swapchain = self.swapchain.take();
+        if let Some(vulkan) = self.vulkan.as_ref() {
+            unsafe {
+                vulkan.device.device_wait_idle();
+
+                if let Some(mut swapchain) = swapchain {
+                    swapchain.destroy(&vulkan.device);
+                }
+            }
+        }
+        self.vulkan = None;
+    }
+}
+
+impl Drop for App {
+    fn drop(&mut self) {
+        self.destroy_vulkan_resources();
+    }
+}
+
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
 

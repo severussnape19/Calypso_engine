@@ -5,11 +5,11 @@ use raw_window_handle::HasWindowHandle;
 use winit::{self, application::ApplicationHandler, dpi::PixelUnit::Physical, event::WindowEvent, event_loop::{ControlFlow, EventLoop}, window::Window};
 use winit::raw_window_handle::HasDisplayHandle;
 
-pub struct QueueInfos {
-    pub graphics_queue_index: u32,
-    pub transfer_queue_index: u32,
-    pub graphics_queue: ash::vk::Queue,
-    pub transfer_queue: ash::vk::Queue
+pub struct DeviceQueues {
+    pub graphics_family: u32,
+    pub transfer_family: u32,
+    pub graphics: ash::vk::Queue,
+    pub transfer: ash::vk::Queue
 }
 
 pub struct VulkanContext {
@@ -20,8 +20,9 @@ pub struct VulkanContext {
     pub surface_loader: surface::Instance,
     pub surface: vk::SurfaceKHR,
     pub physical_device: ash::vk::PhysicalDevice,
-    pub queues: QueueInfos,
+    pub queues: DeviceQueues,
     pub device: ash::Device,
+    pub command_pool: ash::vk::CommandPool,
 }
 
 pub unsafe extern "system" fn debug_callback(
@@ -42,7 +43,7 @@ impl VulkanContext {
     pub fn new(window: &Window) -> Result<Self, Box<dyn Error>> {
         let (entry, instance, debug_loader, debug_messenger) = Self::create_instance(window)?;
         let physical_device: ash::vk::PhysicalDevice = Self::pick_physical_device(&instance)?;
-        let (queue_infos, device): (QueueInfos, ash::Device) = Self::create_logical_device(&instance, &physical_device)?;
+        let (queue_infos, device): (DeviceQueues, ash::Device) = Self::create_logical_device(&instance, &physical_device)?;
 
         let window_handle = window.window_handle()?.as_raw();
         let display_handle = window.display_handle()?.as_raw();
@@ -58,6 +59,9 @@ impl VulkanContext {
             )?
         };
 
+        let command_pool = Self::create_command_pool(&device, &queue_infos)?;
+
+
         Ok( VulkanContext {
             entry,
             instance,
@@ -67,7 +71,8 @@ impl VulkanContext {
             surface,
             physical_device,
             queues: queue_infos,
-            device
+            device,
+            command_pool
         })
     }
 
@@ -128,7 +133,7 @@ impl VulkanContext {
         }
 
         let layer_ptrs: Vec<*const i8> = required_layers.iter().map(|layer| layer.as_ptr()).collect();
-        let mut extension_ptrs: Vec<*const i8> = surface_extensions.iter().map(|ext| *ext).collect();
+        let mut extension_ptrs: Vec<*const i8> = surface_extensions.to_vec();
         extension_ptrs.push(debug_uitls_extension.as_ptr());
 
         let mut debug_utils_info = Self::create_debug_utils_messenger();
@@ -229,7 +234,7 @@ impl VulkanContext {
         }
     }
 
-    fn create_logical_device(instance: &ash::Instance, adapter: &ash::vk::PhysicalDevice) -> Result<(QueueInfos, ash::Device), Box<dyn Error>> {
+    fn create_logical_device(instance: &ash::Instance, adapter: &ash::vk::PhysicalDevice) -> Result<(DeviceQueues, ash::Device), Box<dyn Error>> {
         let queue_family_properties = unsafe { instance.get_physical_device_queue_family_properties(*adapter) };
         let graphics_queue_index = Self::choose_graphics_queue(&queue_family_properties)?;
         let transfer_queue_index = Self::choose_transfer_queue(&queue_family_properties)?;
@@ -271,18 +276,30 @@ impl VulkanContext {
         let graphics_queue = unsafe { device.get_device_queue(graphics_queue_index, 0) };
         let transfer_queue = unsafe { device.get_device_queue(transfer_queue_index, 0) };
 
-        let queue_infos: QueueInfos = QueueInfos {
-            graphics_queue_index, transfer_queue_index,
-            graphics_queue      , transfer_queue
+        let queue_infos: DeviceQueues = DeviceQueues {
+            graphics_family: graphics_queue_index, transfer_family: transfer_queue_index,
+            graphics: graphics_queue      , transfer: transfer_queue
         };
         log!(INFO, "Created queues and device!");
         Ok((queue_infos, device))
+    }
+
+    fn create_command_pool(device: &ash::Device, queues: &DeviceQueues) -> Result<ash::vk::CommandPool, Box<dyn Error>> {
+        let create_info = ash::vk::CommandPoolCreateInfo::default()
+            .queue_family_index(queues.graphics_family)
+            .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
+
+        log!(INFO, "Created Command Pool!");
+        Ok(unsafe { device.create_command_pool(&create_info, None)? })
     }
 }
 
 impl Drop for VulkanContext {
     fn drop(&mut self) {
         unsafe {
+            self.device.device_wait_idle();
+
+            self.device.destroy_command_pool(self.command_pool, None);
             self.device.destroy_device(None);
             self.surface_loader.destroy_surface(self.surface, None);
             self.debug_loader.destroy_debug_utils_messenger(self.debug_messenger, None);
