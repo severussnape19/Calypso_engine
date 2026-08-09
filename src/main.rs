@@ -9,6 +9,7 @@ use winit::{self, application::ApplicationHandler, event::WindowEvent, event_loo
 
 mod vulkan_context;
 mod swapchain;
+mod pipeline;
 use vulkan_context::VulkanContext;
 
 use crate::swapchain::Swapchain;
