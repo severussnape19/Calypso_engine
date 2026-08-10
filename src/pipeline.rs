@@ -65,6 +65,19 @@ impl Pipeline {
     }
 
     pub fn new(ctx: &VulkanContext, swapchain: &Swapchain) -> Result<Self, Box<dyn Error>> {
+        let (shader_module, pipeline_layout, pipeline) = Self::create_graphics_pipeline(ctx, swapchain)?;
+        Ok (Self {
+            shader_module,
+            layout: pipeline_layout,
+            handle: pipeline
+        })
+    }
+
+    pub fn create_graphics_pipeline(
+        ctx: &VulkanContext,
+        swapchain: &Swapchain
+    ) -> Result<(ash::vk::ShaderModule, ash::vk::PipelineLayout, ash::vk::Pipeline), Box<dyn Error>> {
+
         let path = Path::new("./shaders/slang.spv");
         let shader_module= Self::load_shader(ctx, path)?;
 
@@ -171,6 +184,6 @@ impl Pipeline {
 
         log!(INFO, "Pipeline and layout created!");
 
-        Ok(Pipeline { shader_module, layout: pipeline_layout, handle: graphics_pipeline[0] })
+        Ok((shader_module, pipeline_layout, graphics_pipeline[0]))
     }
 }
