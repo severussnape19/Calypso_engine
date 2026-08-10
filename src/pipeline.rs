@@ -3,7 +3,7 @@ use std::{error::Error, ffi::{CString, c_char}, fs::File, path::{self, Path}};
 use ash::khr::swapchain;
 use glm::ext::half_pi;
 
-use crate::{log, pipeline, swapchain::Swapchain, vulkan_context::VulkanContext};
+use crate::{log, pipeline, swapchain::Swapchain, vulkan_context::VulkanContext, warn};
 
 pub struct Vertex {
     pos:   glm::Vec2,
@@ -40,14 +40,17 @@ pub struct Pipeline {
     pub shader_module: ash::vk::ShaderModule,
     pub layout: ash::vk::PipelineLayout,
     pub handle: ash::vk::Pipeline,
+    pub descriptor_layout: ash::vk::DescriptorSetLayout,
 }
 
 impl Pipeline {
     pub unsafe fn destroy_resources(&mut self, ctx: &VulkanContext) {
         unsafe {
+            ctx.device.destroy_descriptor_set_layout(self.descriptor_layout, None);
             ctx.device.destroy_shader_module(self.shader_module, None);
             ctx.device.destroy_pipeline_layout(self.layout, None);
             ctx.device.destroy_pipeline(self.handle, None);
+            warn!(WARN, "Pipeline objects destroyed!");
         }
     }
 
@@ -66,14 +69,24 @@ impl Pipeline {
 
     pub fn new(ctx: &VulkanContext, swapchain: &Swapchain) -> Result<Self, Box<dyn Error>> {
         let (shader_module, pipeline_layout, pipeline) = Self::create_graphics_pipeline(ctx, swapchain)?;
+        let descriptor_layout = Self::create_descriptor_set_layout(ctx)?;
+
         Ok (Self {
             shader_module,
             layout: pipeline_layout,
-            handle: pipeline
+            handle: pipeline,
+            descriptor_layout
         })
     }
 
-    pub fn create_graphics_pipeline(
+    fn create_descriptor_set_layout(ctx: &VulkanContext) -> Result<ash::vk::DescriptorSetLayout, Box<dyn Error>> {
+        let create_info = ash::vk::DescriptorSetLayoutCreateInfo::default();
+
+        log!(INFO, "Descriptor set layout created!");
+        Ok(unsafe { ctx.device.create_descriptor_set_layout(&create_info, None)? })
+    }
+
+    fn create_graphics_pipeline(
         ctx: &VulkanContext,
         swapchain: &Swapchain
     ) -> Result<(ash::vk::ShaderModule, ash::vk::PipelineLayout, ash::vk::Pipeline), Box<dyn Error>> {

@@ -292,6 +292,22 @@ impl VulkanContext {
         log!(INFO, "Created Command Pool!");
         Ok(unsafe { device.create_command_pool(&create_info, None)? })
     }
+
+    pub unsafe fn find_memory_type(
+        &self,
+        type_bits: u32,
+        properties:
+        ash::vk::MemoryPropertyFlags
+    ) -> Result<u32, Box<dyn Error>> {
+        let memory_properties = unsafe { self.instance.get_physical_device_memory_properties(self.physical_device) };
+
+        for i in 0..memory_properties.memory_type_count {
+            if (type_bits & (1 << i)) != 0 && memory_properties.memory_types[i as usize].property_flags.contains(properties)  {
+                return Ok(i);
+            }
+        }
+        Err("[ERR] Could not find required memory properties".into())
+    }
 }
 
 impl Drop for VulkanContext {

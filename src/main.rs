@@ -33,13 +33,14 @@ impl App {
             unsafe {
                 vulkan.device.device_wait_idle();
 
+                if let Some(mut pipeline_) = pipeline {
+                    pipeline_.destroy_resources(vulkan);
+                }
+
                 if let Some(mut swapchain) = swapchain {
                     swapchain.destroy(&vulkan.device);
                 }
 
-                if let Some(mut pipeline_) = pipeline {
-                    pipeline_.destroy_resources(vulkan);
-                }
             }
         }
         self.vulkan = None;

@@ -2,7 +2,7 @@ use std::{error::Error, mem::swap};
 
 use ash::khr::{get_surface_capabilities2, swapchain};
 
-use crate::{log, vulkan_context::{self, DeviceQueues, VulkanContext}};
+use crate::{log, vulkan_context::{self, DeviceQueues, VulkanContext}, warn};
 
 pub struct SwapchainConfig {
     pub min_image_count: u32,
@@ -18,6 +18,9 @@ pub struct Swapchain {
     pub config: SwapchainConfig,
     pub images: Vec<ash::vk::Image>,
     pub image_views: Vec<ash::vk::ImageView>,
+    pub depth_image: ash::vk::Image,
+    pub depth_image_memory: ash::vk::DeviceMemory,
+    pub depth_image_view: ash::vk::ImageView,
 }
 
 impl Swapchain {
@@ -25,12 +28,19 @@ impl Swapchain {
         let device_loader = unsafe { ash::khr::swapchain::Device::new(&context.instance, &context.device) };
         let (swapchain_config, swapchain, images) = Self::create_swapchain(context, &device_loader, None)?;
         let image_views: Vec<ash::vk::ImageView> = Self::create_swapchain_image_views(context, &images, &swapchain_config)?;
+
+        let (depth_image, image_memory) = Self::create_depth_image(context, &swapchain_config)?;
+        let depth_image_view = Self::create_depth_image_view(&depth_image, context)?;
+
         Ok(Swapchain {
             loader: device_loader,
             handle: swapchain,
             config: swapchain_config,
             images,
             image_views,
+            depth_image,
+            depth_image_memory: image_memory,
+            depth_image_view
         })
     }
 
@@ -172,6 +182,54 @@ impl Swapchain {
         Ok(image_views)
     }
 
+    fn create_depth_image(
+        ctx: &VulkanContext,
+        swapchain_config: &SwapchainConfig
+    ) -> Result<(ash::vk::Image, ash::vk::DeviceMemory), Box<dyn Error>> {
+        let create_info = ash::vk::ImageCreateInfo::default()
+            .image_type(ash::vk::ImageType::TYPE_2D)
+            .usage(ash::vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT)
+            .extent(ash::vk::Extent3D {
+                width: swapchain_config.extent.width,
+                height: swapchain_config.extent.height,
+                depth: 0u32
+            })
+            .tiling(ash::vk::ImageTiling::OPTIMAL)
+            .array_layers(1u32)
+            .mip_levels(1u32)
+            .format(ash::vk::Format::D32_SFLOAT)
+            .samples(ash::vk::SampleCountFlags::TYPE_1);
+
+        let depth_image = unsafe { ctx.device.create_image(&create_info, None)? };
+
+        let memory_requirements = unsafe { ctx.device.get_image_memory_requirements(depth_image) };
+        let type_index = unsafe {ctx.find_memory_type(memory_requirements.memory_type_bits, ash::vk::MemoryPropertyFlags::DEVICE_LOCAL)?};
+        let alloc_info = ash::vk::MemoryAllocateInfo::default()
+            .allocation_size(memory_requirements.size)
+            .memory_type_index(type_index);
+
+        let depth_image_memory = unsafe { ctx.device.allocate_memory(&alloc_info, None)? };
+        unsafe { ctx.device.bind_image_memory(depth_image, depth_image_memory, 0u64)? };
+
+        Ok((depth_image, depth_image_memory))
+    }
+
+    fn create_depth_image_view(image: &ash::vk::Image, ctx: &VulkanContext) -> Result<ash::vk::ImageView, Box<dyn Error>> {
+        let create_info = ash::vk::ImageViewCreateInfo::default()
+            .image(*image)
+            .format(ash::vk::Format::D32_SFLOAT)
+            .view_type(ash::vk::ImageViewType::TYPE_2D)
+            .subresource_range(ash::vk::ImageSubresourceRange {
+                aspect_mask: ash::vk::ImageAspectFlags::DEPTH,
+                base_mip_level: 0u32,
+                level_count: 0u32,
+                base_array_layer: 1u32,
+                layer_count: 1u32
+            });
+
+        Ok(unsafe { ctx.device.create_image_view(&create_info, None)? })
+    }
+
     pub unsafe fn destroy(&mut self, device: &ash::Device) {
         for view in &self.image_views {
             unsafe { device.destroy_image_view(*view, None) };
@@ -182,5 +240,10 @@ impl Swapchain {
             unsafe { self.loader.destroy_swapchain(self.handle, None) };
             self.handle = ash::vk::SwapchainKHR::null();
         }
+
+        unsafe { device.destroy_image_view(self.depth_image_view, None); }
+        unsafe { device.destroy_image(self.depth_image, None); }
+        unsafe { device.free_memory(self.depth_image_memory, None) };
+        warn!(WARN, "Swapchain objects destroyed!");
     }
 }
