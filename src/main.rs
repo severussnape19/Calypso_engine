@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 #![allow(unused)]
 
-use std::{ error::Error, ffi::{CStr, CString}, result};
+use std::{ error::Error, ffi::{CStr, CString}, result, task::Context};
 
 use ash::{ Entry, vk };
 use raw_window_handle::HasWindowHandle;
@@ -20,18 +20,25 @@ mod macros;
 struct App {
     window: Option<Window>,
     vulkan: Option<VulkanContext>,
-    swapchain: Option<swapchain::Swapchain>
+    swapchain: Option<swapchain::Swapchain>,
+    pipeline: Option<pipeline::Pipeline>,
 }
 
 impl App {
     fn destroy_vulkan_resources(&mut self) {
         let swapchain = self.swapchain.take();
+        let pipeline = self.pipeline.take();
+
         if let Some(vulkan) = self.vulkan.as_ref() {
             unsafe {
                 vulkan.device.device_wait_idle();
 
                 if let Some(mut swapchain) = swapchain {
                     swapchain.destroy(&vulkan.device);
+                }
+
+                if let Some(mut pipeline_) = pipeline {
+                    pipeline_.destroy_resources(vulkan);
                 }
             }
         }
@@ -55,7 +62,7 @@ impl ApplicationHandler for App {
             let vulkan = match VulkanContext::new(&window) {
                 Ok(vulkan) => vulkan,
                 Err(e) => {
-                    eprintln!("[ERR] Failed to initialize vulkan: {e}");
+                    error!(ERROR, "Failed to initialize vulkan: {e}");
                     event_loop.exit();
                     return;
                 }
@@ -64,7 +71,16 @@ impl ApplicationHandler for App {
             let swapchain = match Swapchain::new(&vulkan) {
                 Ok(sc) => sc,
                 Err(e) => {
-                    eprintln!("[ERR] Failed to create swapchain!");
+                    error!(ERROR, "Failed to create swapchain!: {e}");
+                    event_loop.exit();
+                    return;
+                }
+            };
+
+            let pipeline_ = match pipeline::Pipeline::new(&vulkan, &swapchain) {
+                Ok(p) => p,
+                Err(e) => {
+                    error!(ERROR, "Failed to create pipeline!: {e}");
                     event_loop.exit();
                     return;
                 }
@@ -72,7 +88,9 @@ impl ApplicationHandler for App {
 
             self.window = Some(window);
             self.vulkan = Some(vulkan);
-            self.swapchain = Some(swapchain)
+            self.swapchain = Some(swapchain);
+            self.pipeline = Some(pipeline_);
+
         }
     }
 

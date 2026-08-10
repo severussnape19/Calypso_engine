@@ -21,3 +21,15 @@ macro_rules! warn {
         )
     };
 }
+
+#[macro_export]
+macro_rules! error {
+    (ERROR, $($arg:tt)*) => {
+        eprintln!(
+            "\x1b[31m[ERROR]\x1b[0m [{}:{}] {}",
+            file!(),
+            line!(),
+            format_args!($($arg)*)
+        );
+    };
+}
