@@ -10,9 +10,11 @@ use winit::{self, application::ApplicationHandler, event::WindowEvent, event_loo
 mod vulkan_context;
 mod swapchain;
 mod pipeline;
+mod frame_renderer;
 use vulkan_context::VulkanContext;
 
 use crate::swapchain::Swapchain;
+use crate::frame_renderer::FrameRenderer;
 
 mod macros;
 
@@ -22,6 +24,7 @@ struct App {
     vulkan: Option<VulkanContext>,
     swapchain: Option<swapchain::Swapchain>,
     pipeline: Option<pipeline::Pipeline>,
+    frame_renderer: Option<frame_renderer::FrameRenderer>,
 }
 
 impl App {
@@ -87,11 +90,20 @@ impl ApplicationHandler for App {
                 }
             };
 
+            let frame_renderer_ = match FrameRenderer::new(&vulkan) {
+                Ok(fr) => fr,
+                Err(e) => {
+                    error!(ERROR, "Failed to create frame renderer: {e}");
+                    event_loop.exit();
+                    return;
+                }
+            };
+
             self.window = Some(window);
             self.vulkan = Some(vulkan);
             self.swapchain = Some(swapchain);
             self.pipeline = Some(pipeline_);
-
+            self.frame_renderer = Some(frame_renderer_);
         }
     }
 

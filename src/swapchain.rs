@@ -192,7 +192,7 @@ impl Swapchain {
             .extent(ash::vk::Extent3D {
                 width: swapchain_config.extent.width,
                 height: swapchain_config.extent.height,
-                depth: 0u32
+                depth: 1u32
             })
             .tiling(ash::vk::ImageTiling::OPTIMAL)
             .array_layers(1u32)
@@ -222,8 +222,8 @@ impl Swapchain {
             .subresource_range(ash::vk::ImageSubresourceRange {
                 aspect_mask: ash::vk::ImageAspectFlags::DEPTH,
                 base_mip_level: 0u32,
-                level_count: 0u32,
-                base_array_layer: 1u32,
+                level_count: 1u32,
+                base_array_layer: 0u32,
                 layer_count: 1u32
             });
 
