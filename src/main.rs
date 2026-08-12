@@ -31,19 +31,23 @@ impl App {
     fn destroy_vulkan_resources(&mut self) {
         let swapchain = self.swapchain.take();
         let pipeline = self.pipeline.take();
+        let frame_renderer = self.frame_renderer.take();
 
         if let Some(vulkan) = self.vulkan.as_ref() {
             unsafe {
                 vulkan.device.device_wait_idle();
 
+                if let Some(mut renderer_) = frame_renderer {
+                    renderer_.destroy_resources(vulkan);
+                }
+
                 if let Some(mut pipeline_) = pipeline {
                     pipeline_.destroy_resources(vulkan);
                 }
 
-                if let Some(mut swapchain) = swapchain {
-                    swapchain.destroy(&vulkan.device);
+                if let Some(mut swapchain_) = swapchain {
+                    swapchain_.destroy(&vulkan.device);
                 }
-
             }
         }
         self.vulkan = None;
