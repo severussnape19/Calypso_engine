@@ -155,16 +155,16 @@ private:
             .setCommandPool(context_.getCommandpool())
             .setLevel(vk::CommandBufferLevel::ePrimary)
             .setCommandBufferCount(static_cast<u32>(MAX_FRAMES_INFLIGHT));
-        commandBuffer_ = std::move(vk::raii::CommandBuffers(context_.getLogicalDevice(), allocInfo));
+        commandBuffers_ = std::move(vk::raii::CommandBuffers(context_.getLogicalDevice(), allocInfo));
         std::println("[LOG] Created command buffer!");
     }
 
     auto recordCommandBuffer(u32 curIdx, u32 imageIndex) -> void {
-        auto& cmdBuf = commandBuffer_[curIdx];
+        auto& cmdBuf = commandBuffers_[curIdx];
         vk::CommandBufferBeginInfo beginInfo{};
         beginInfo.setFlags(vk::CommandBufferUsageFlagBits::eOneTimeSubmit);
         // Starts recording the command buffer
-        commandBuffer_[curIdx].begin(beginInfo);
+        commandBuffers_[curIdx].begin(beginInfo);
 
         // undefined -> colorAttachmentOptimal
         // GPU needs the image to te in colorAttachmentOptimal layout to render into it
@@ -217,7 +217,7 @@ private:
         );
 
         // Draw commands from here
-        commandBuffer_[curIdx].beginRendering(renderingInfo);
+        commandBuffers_[curIdx].beginRendering(renderingInfo);
 
         // Dynamic variables
         vk::Viewport viewport {
@@ -226,21 +226,21 @@ private:
             static_cast<f32>(swapchain_.getExtent().height),
             0.f, 1.f
         };
-        commandBuffer_[curIdx].setViewport(0, viewport);
+        commandBuffers_[curIdx].setViewport(0, viewport);
         vk::Rect2D scissor{{0, 0}, swapchain_.getExtent()};
-        commandBuffer_[curIdx].setScissor(0, scissor);
+        commandBuffers_[curIdx].setScissor(0, scissor);
 
-        commandBuffer_[curIdx].bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline_.getPipeline());
+        commandBuffers_[curIdx].bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline_.getPipeline());
 
         // Bind vertex and index buffers during rendering
-        commandBuffer_[curIdx].bindVertexBuffers(0, *vertexBuffer_, {0});
-        commandBuffer_[curIdx].bindIndexBuffer(*indexBuffer_, 0, vk::IndexType::eUint16);
+        commandBuffers_[curIdx].bindVertexBuffers(0, *vertexBuffer_, {0});
+        commandBuffers_[curIdx].bindIndexBuffer(*indexBuffer_, 0, vk::IndexType::eUint16);
 
         // Draw calls
         //commandBuffer_[curIdx].draw(static_cast<u32>(vertices.size()), 1u, 0u, 0u);
-        commandBuffer_[curIdx].drawIndexed(static_cast<u32>(indices.size()), 1u, 0u, 0u, 0u);
+        commandBuffers_[curIdx].drawIndexed(static_cast<u32>(indices.size()), 1u, 0u, 0u, 0u);
 
-        commandBuffer_[curIdx].endRendering();
+        commandBuffers_[curIdx].endRendering();
 
         // Transistion image to present
         // colorAttachmentOptimal -> presentSrcKHR
@@ -254,7 +254,7 @@ private:
             vk::PipelineStageFlags2{vk::PipelineStageFlagBits2::eColorAttachmentOutput},
             vk::PipelineStageFlags2{vk::PipelineStageFlagBits2::eBottomOfPipe});
         // End recording commands
-        commandBuffer_[curIdx].end();
+        commandBuffers_[curIdx].end();
     }
 
     auto createSyncObjects() -> void {
@@ -326,7 +326,7 @@ private:
         // only reset after we know we are going to submit work to the GPU
         context_.getLogicalDevice().resetFences(*inflightFences_[currentFrame_]);
         // Re-record fresh command buffers for the current frame.
-        commandBuffer_[currentFrame_].reset();
+        commandBuffers_[currentFrame_].reset();
         recordCommandBuffer(currentFrame_, imageIndex);
 
         // --- submit ---
@@ -344,7 +344,7 @@ private:
 
         // set command buffers
         vk::CommandBufferSubmitInfo cmdSubmitInfo{};
-        cmdSubmitInfo.setCommandBuffer(*commandBuffer_[currentFrame_]);
+        cmdSubmitInfo.setCommandBuffer(*commandBuffers_[currentFrame_]);
 
         vk::SubmitInfo2 submitInfo{};
         submitInfo
@@ -419,7 +419,7 @@ private:
     Pipeline      const& pipeline_;
     GLFWwindow*   window_ = nullptr;
 
-    std::vector<vk::raii::CommandBuffer> commandBuffer_{};
+    std::vector<vk::raii::CommandBuffer> commandBuffers_{};
 
     std::vector<vk::raii::Semaphore> presentCompleteSemaphores_;
     std::vector<vk::raii::Semaphore> renderFinishedSemaphores_;

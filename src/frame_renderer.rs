@@ -1,41 +1,79 @@
 use core::error;
-use std::error::Error;
+use std::{error::Error, ops::BitOr};
 
+use ash::{khr::swapchain, vk::{CommandBuffer, Semaphore}};
 use glm::{ Vec2, Vec3 };
 
-use crate::{log, pipeline::Vertex, vulkan_context::VulkanContext};
+use crate::{log, pipeline::{self, Pipeline, Vertex}, swapchain::Swapchain, vulkan_context::VulkanContext, warn};
 
 const MAX_FRAMES_IN_FLIGHT: u32 = 2;
 
+pub struct Resources {
+    vertices: Vec<Vertex>,
+    indices: Vec<u16>
+}
+
+pub struct SyncObjects {
+    pub present_complete_semaphores: Vec<ash::vk::Semaphore>,
+    pub render_finish_semaphores: Vec<ash::vk::Semaphore>,
+    pub inflight_fences: Vec<ash::vk::Fence>,
+}
+
 pub struct FrameRenderer {
+    resources: Resources,
     vertex_buffer: ash::vk::Buffer,
     vertex_memory: ash::vk::DeviceMemory,
     index_buffer : ash::vk::Buffer,
     index_memory : ash::vk::DeviceMemory,
+    command_buffers: Vec<ash::vk::CommandBuffer>,
+    sync_objects : SyncObjects,
+    current_frame: usize,
+    framebuffer_resized: bool,
 }
 
 impl FrameRenderer {
 
-    pub fn new(ctx: &VulkanContext) -> Result<Self, Box<dyn Error>> {
+    pub fn new(ctx: &VulkanContext, swapchain: &Swapchain) -> Result<Self, Box<dyn Error>> {
         let (vertices, indices) = Self::get_data();
-        let (vertex_buffer, vertex_memory) = Self::create_vertex_buffer(ctx, vertices)?;
-        let (index_buffer, index_memory)   = Self::create_index_buffer(ctx, indices)?;
+        let resources = Resources { vertices, indices };
+
+        let (vertex_buffer, vertex_memory) = Self::create_vertex_buffer(ctx, &resources.vertices)?;
+        let (index_buffer, index_memory)   = Self::create_index_buffer(ctx, &resources.indices)?;
+
+        let sync_objects = Self::create_synchronization_objects(ctx, swapchain)?;
+        let current_frame = 0;
+
+        let command_buffers = Self::create_command_buffer(ctx)?;
 
         Ok( Self{
+            resources,
             vertex_buffer,
             vertex_memory,
             index_buffer,
-            index_memory
+            index_memory,
+            command_buffers,
+            sync_objects,
+            current_frame,
+            framebuffer_resized: false,
         } )
     }
 
     pub unsafe fn destroy_resources(&mut self, ctx: &VulkanContext) {
         unsafe {
+            ctx.device.free_command_buffers(ctx.command_pool, &self.command_buffers);
+
+            for i in 0..self.sync_objects.present_complete_semaphores.len() {
+                ctx.device.destroy_semaphore(self.sync_objects.present_complete_semaphores[i], None);
+                ctx.device.destroy_semaphore(self.sync_objects.render_finish_semaphores[i], None);
+                ctx.device.destroy_fence(self.sync_objects.inflight_fences[i], None);
+            }
+
             ctx.device.destroy_buffer(self.vertex_buffer, None);
             ctx.device.free_memory(self.vertex_memory, None);
 
             ctx.device.destroy_buffer(self.index_buffer, None);
             ctx.device.free_memory(self.index_memory, None);
+            warn!(WARN, "Render objects destroyed!");
         }
     }
 
@@ -97,8 +135,9 @@ impl FrameRenderer {
         Ok(())
     }
 
-    fn create_vertex_buffer(ctx: &VulkanContext, vertices: Vec<Vertex>) -> Result<(ash::vk::Buffer, ash::vk::DeviceMemory), Box<dyn Error>> {
-        let buffer_size = (std::mem::size_of::<Vertex>() * vertices.len()) as u64;
+    fn create_vertex_buffer(ctx: &VulkanContext, vertices: &[Vertex]) -> Result<(ash::vk::Buffer, ash::vk::DeviceMemory), Box<dyn Error>> {
+        //let buffer_size = (std::mem::size_of::<Vertex>() * vertices.len()) as u64;
+        let buffer_size = (std::mem::size_of_val(vertices)) as u64;
         // Create on the host side and then transfer to the device
         let (staging_buffer, staging_buffer_memory) = Self::create_buffer(
             ctx,
@@ -134,8 +173,9 @@ impl FrameRenderer {
         Ok((vertex_buffer, vertex_buffer_memory))
     }
 
-    fn create_index_buffer(ctx: &VulkanContext, indices: Vec<u16>) -> Result<(ash::vk::Buffer, ash::vk::DeviceMemory), Box<dyn Error>> {
-        let buffer_size: u64 = (std::mem::size_of::<u16>() * indices.len()) as u64;
+    fn create_index_buffer(ctx: &VulkanContext, indices: &[u16]) -> Result<(ash::vk::Buffer, ash::vk::DeviceMemory), Box<dyn Error>> {
+        //let buffer_size: u64 = (std::mem::size_of::<u16>() * indices.len()) as u64;
+        let buffer_size: u64 = (std::mem::size_of_val(indices)) as u64;
         let (staging_index_buffer, staging_index_buf_mem) = Self::create_buffer(
             ctx,
             buffer_size,
@@ -163,7 +203,7 @@ impl FrameRenderer {
                 ctx,
                 staging_index_buffer,
                 index_buf,
-                buffer_size)?;
+         buffer_size)?;
         }
 
         unsafe {
@@ -173,6 +213,192 @@ impl FrameRenderer {
 
         log!(INFO, "Created index buffer!");
         Ok((index_buf, index_mem))
+    }
+
+    fn create_command_buffer(ctx: &VulkanContext) -> Result<Vec<ash::vk::CommandBuffer>, Box<dyn Error>> {
+        let alloc_info = ash::vk::CommandBufferAllocateInfo::default()
+            .command_pool(ctx.command_pool)
+            .level(ash::vk::CommandBufferLevel::PRIMARY)
+            .command_buffer_count(MAX_FRAMES_IN_FLIGHT);
+
+        Ok(unsafe { ctx.device.allocate_command_buffers(&alloc_info)? })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn transition_image_layout(
+        device: &ash::Device,
+        command_buffer: &ash::vk::CommandBuffer, image: ash::vk::Image,
+        old_layout: ash::vk::ImageLayout, new_layout: ash::vk::ImageLayout,
+        src_access_mask: ash::vk::AccessFlags2, dst_access_mask: ash::vk::AccessFlags2,
+        src_stage_mask: ash::vk::PipelineStageFlags2, dst_stage_mask: ash::vk::PipelineStageFlags2,
+        aspect_mask: ash::vk::ImageAspectFlags,
+    ) {
+        let barrier = ash::vk::ImageMemoryBarrier2::default()
+            .src_stage_mask(src_stage_mask)
+            .dst_stage_mask(dst_stage_mask)
+            .src_access_mask(src_access_mask)
+            .dst_access_mask(dst_access_mask)
+            .old_layout(old_layout)
+            .new_layout(new_layout)
+            .src_queue_family_index(ash::vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(ash::vk::QUEUE_FAMILY_IGNORED)
+            .image(image)
+            .subresource_range(ash::vk::ImageSubresourceRange {
+                aspect_mask,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer:0,
+                layer_count: 1,
+            });
+
+        let mem_barriers = [barrier];
+        let dependency_info = ash::vk::DependencyInfo::default().image_memory_barriers(&mem_barriers);
+        unsafe { device.cmd_pipeline_barrier2(*command_buffer, &dependency_info) };
+    }
+
+    fn record_command_buffer(
+        &self,
+        device: &ash::Device,
+        command_buffers: &[ash::vk::CommandBuffer],
+        swapchain: &Swapchain,
+        pipeline: &Pipeline,
+        current_idx: usize, image_index: usize
+    ) -> Result<(), Box<dyn Error>> {
+
+        let command_buffer: &ash::vk::CommandBuffer = &command_buffers[current_idx];
+        let begin_info = ash::vk::CommandBufferBeginInfo::default()
+            .flags(ash::vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+        // Start recording
+        unsafe { device.begin_command_buffer(*command_buffer, &begin_info)? };
+
+        // ---------------- Image and Depth Transitions
+        // image transition barrier (undefined -> colorAttachmentOptimal)
+        Self::transition_image_layout(
+            device, command_buffer, swapchain.images[image_index],
+            ash::vk::ImageLayout::UNDEFINED, ash::vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            ash::vk::AccessFlags2::default(), ash::vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
+            ash::vk::PipelineStageFlags2::TOP_OF_PIPE, ash::vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
+            ash::vk::ImageAspectFlags::COLOR);
+
+        let color_attachment_info = ash::vk::RenderingAttachmentInfo::default()
+            .image_view(swapchain.image_views[image_index])
+            .image_layout(ash::vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .load_op(ash::vk::AttachmentLoadOp::CLEAR)
+            .store_op(ash::vk::AttachmentStoreOp::STORE)
+            .clear_value(ash::vk::ClearValue { color: ash::vk::ClearColorValue::default() });
+
+        // Depth image transition
+        Self::transition_image_layout(
+            device, command_buffer, swapchain.depth_image,
+            ash::vk::ImageLayout::UNDEFINED, ash::vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            ash::vk::AccessFlags2::default(), ash::vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE,
+            ash::vk::PipelineStageFlags2::TOP_OF_PIPE,
+            ash::vk::PipelineStageFlags2::default().bitor(ash::vk::PipelineStageFlags2::EARLY_FRAGMENT_TESTS | ash::vk::PipelineStageFlags2::LATE_FRAGMENT_TESTS),
+            ash::vk::ImageAspectFlags::DEPTH);
+
+        let depth_attachment_info = ash::vk::RenderingAttachmentInfo::default()
+            .image_view(swapchain.depth_image_view)
+            .image_layout(ash::vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+            .load_op(ash::vk::AttachmentLoadOp::CLEAR)
+            .store_op(ash::vk::AttachmentStoreOp::STORE)
+            .clear_value(ash::vk::ClearValue { depth_stencil: ash::vk::ClearDepthStencilValue::default().depth(1.0f32).stencil(0)});
+
+        // ------------- Draw Commands
+        let color_attachment_infos = [color_attachment_info];
+        let render_info = ash::vk::RenderingInfo::default()
+            .render_area(ash::vk::Rect2D::default()
+                .offset(ash::vk::Offset2D::default().x(0).y(0))
+                .extent(swapchain.config.extent))
+            .layer_count(1)
+            .color_attachments(&color_attachment_infos)
+            .depth_attachment(&depth_attachment_info);
+
+        unsafe { device.cmd_begin_rendering(*command_buffer, &render_info) };
+
+        let viewport = ash::vk::Viewport::default()
+            .x(0f32)
+            .y(0f32)
+            .width(swapchain.config.extent.width as f32)
+            .height(swapchain.config.extent.height as f32)
+            .min_depth(0f32)
+            .max_depth(1f32);
+        let viewports = [viewport];
+
+        let scissor = ash::vk::Rect2D::default()
+            .offset(ash::vk::Offset2D::default().x(0).y(0))
+            .extent(swapchain.config.extent);
+        let scissors = [scissor];
+
+        // Bind dynamic variables
+        unsafe { device.cmd_set_viewport(*command_buffer, 0, &viewports) };
+        unsafe { device.cmd_set_scissor(*command_buffer, 0, &scissors); }
+
+        unsafe { device.cmd_bind_pipeline(*command_buffer, ash::vk::PipelineBindPoint::GRAPHICS, pipeline.handle) };
+
+        let vert_buffers = [self.vertex_buffer];
+        let vert_buf_offsets = [0u64];
+
+        unsafe { device.cmd_bind_vertex_buffers(*command_buffer, 0, &vert_buffers, &vert_buf_offsets); }
+        unsafe { device.cmd_bind_index_buffer(*command_buffer, self.index_buffer, 0u64, ash::vk::IndexType::UINT16) };
+
+        unsafe { device.cmd_draw_indexed(*command_buffer, self.resources.indices.len() as u32, 1u32, 0, 0, 0) };
+
+        unsafe { device.cmd_end_rendering(*command_buffer) };
+
+        Self::transition_image_layout(
+            device, command_buffer, swapchain.images[image_index],
+            ash::vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL, ash::vk::ImageLayout::PRESENT_SRC_KHR,
+            ash::vk::AccessFlags2::COLOR_ATTACHMENT_WRITE, ash::vk::AccessFlags2::default(),
+            ash::vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT, ash::vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
+            ash::vk::ImageAspectFlags::COLOR);
+
+        unsafe { device.end_command_buffer(*command_buffer) };
+
+        Ok(())
+    }
+
+    fn create_synchronization_objects(ctx: &VulkanContext, swapchain: &Swapchain) -> Result<SyncObjects, Box<dyn Error>> {
+        let semaphore_info = ash::vk::SemaphoreCreateInfo::default();
+        let fence_info = ash::vk::FenceCreateInfo::default().flags(ash::vk::FenceCreateFlags::SIGNALED);
+
+        let num_objs = swapchain.images.len();
+
+        let mut present_complete_semaphores: Vec<ash::vk::Semaphore> = Vec::with_capacity(num_objs);
+        let mut render_finish_semaphores: Vec<ash::vk::Semaphore> = Vec::with_capacity(num_objs);
+        let mut inflight_fences: Vec<ash::vk::Fence> = Vec::with_capacity(num_objs);
+
+        for i in 0..num_objs {
+            present_complete_semaphores.push(unsafe { ctx.device.create_semaphore(&semaphore_info, None)? });
+            render_finish_semaphores.push(unsafe { ctx.device.create_semaphore(&semaphore_info, None)? });
+            inflight_fences.push(unsafe { ctx.device.create_fence(&fence_info, None)? });
+        }
+        Ok(SyncObjects { present_complete_semaphores, render_finish_semaphores, inflight_fences })
+    }
+
+    pub fn draw_frame(&self, ctx: &VulkanContext, swapchain: &Swapchain) -> Result<(), Box<dyn Error>> {
+        if let Err(e) = unsafe { ctx.device.wait_for_fences(
+            &[self.sync_objects.inflight_fences[self.current_frame]],
+            true,
+            u64::MAX)
+        } {
+            return Err("[ERR] Failed to wait for fence".into());
+        }
+
+        let (image_index, acquire_result) = unsafe { swapchain.loader.acquire_next_image(
+            swapchain.handle,
+            u64::MAX,
+            self.sync_objects.present_complete_semaphores[self.current_frame],
+            ash::vk::Fence::null())? };
+
+        if !acquire_result {
+            return Err("[ERR] Failed to acquire swapchain image!".into());
+        }
+
+        unsafe { ctx.device.reset_fences(&[self.sync_objects.inflight_fences[self.current_frame]])? };
+        unsafe { ctx.device.reset_command_buffer(self.command_buffers[self.current_frame], ash::vk::CommandBufferResetFlags::RELEASE_RESOURCES)? };
+
+        Ok(())
     }
 
     fn get_data() -> (Vec<Vertex>, Vec<u16>) {

@@ -94,7 +94,7 @@ impl ApplicationHandler for App {
                 }
             };
 
-            let frame_renderer_ = match FrameRenderer::new(&vulkan) {
+            let frame_renderer_ = match FrameRenderer::new(&vulkan, &swapchain) {
                 Ok(fr) => fr,
                 Err(e) => {
                     error!(ERROR, "Failed to create frame renderer: {e}");
