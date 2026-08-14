@@ -257,7 +257,8 @@ impl VulkanContext {
         let mut vulkan11_features = vk::PhysicalDeviceVulkan11Features::default()
             .shader_draw_parameters(true);
         let mut vulkan13_features = vk::PhysicalDeviceVulkan13Features::default()
-            .dynamic_rendering(true);
+            .dynamic_rendering(true)
+            .synchronization2(true);
         let mut extended_dynamic_state = vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT::default()
             .extended_dynamic_state(true); //pnext chains
 

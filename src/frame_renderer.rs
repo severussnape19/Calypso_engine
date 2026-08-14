@@ -189,7 +189,7 @@ impl FrameRenderer {
         let data = unsafe { ctx.device.map_memory(staging_index_buf_mem, 0u64, buffer_size, ash::vk::MemoryMapFlags::default())? };
 
         unsafe {
-            std::ptr::copy_nonoverlapping(indices.as_ptr(), data as *mut u16, buffer_size as usize);
+            std::ptr::copy_nonoverlapping(indices.as_ptr(), data as *mut u16, indices.len());
         }
 
         let (index_buf, index_mem) = Self::create_buffer(
@@ -221,7 +221,9 @@ impl FrameRenderer {
             .level(ash::vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(MAX_FRAMES_IN_FLIGHT);
 
-        Ok(unsafe { ctx.device.allocate_command_buffers(&alloc_info)? })
+        let command_buffers = unsafe { ctx.device.allocate_command_buffers(&alloc_info)? };
+        println!("Command Buffers: {}", command_buffers.len());
+        Ok(command_buffers)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -259,13 +261,12 @@ impl FrameRenderer {
     fn record_command_buffer(
         &self,
         device: &ash::Device,
-        command_buffers: &[ash::vk::CommandBuffer],
+        command_buffer: &ash::vk::CommandBuffer,
         swapchain: &Swapchain,
         pipeline: &Pipeline,
         current_idx: usize, image_index: usize
     ) -> Result<(), Box<dyn Error>> {
 
-        let command_buffer: &ash::vk::CommandBuffer = &command_buffers[current_idx];
         let begin_info = ash::vk::CommandBufferBeginInfo::default()
             .flags(ash::vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
 
@@ -362,7 +363,7 @@ impl FrameRenderer {
         let semaphore_info = ash::vk::SemaphoreCreateInfo::default();
         let fence_info = ash::vk::FenceCreateInfo::default().flags(ash::vk::FenceCreateFlags::SIGNALED);
 
-        let num_objs = swapchain.images.len();
+        let num_objs = MAX_FRAMES_IN_FLIGHT as usize;
 
         let mut present_complete_semaphores: Vec<ash::vk::Semaphore> = Vec::with_capacity(num_objs);
         let mut render_finish_semaphores: Vec<ash::vk::Semaphore> = Vec::with_capacity(num_objs);
@@ -373,30 +374,82 @@ impl FrameRenderer {
             render_finish_semaphores.push(unsafe { ctx.device.create_semaphore(&semaphore_info, None)? });
             inflight_fences.push(unsafe { ctx.device.create_fence(&fence_info, None)? });
         }
+        log!(INFO, "Sync objects created!");
         Ok(SyncObjects { present_complete_semaphores, render_finish_semaphores, inflight_fences })
     }
 
-    pub fn draw_frame(&self, ctx: &VulkanContext, swapchain: &Swapchain) -> Result<(), Box<dyn Error>> {
-        if let Err(e) = unsafe { ctx.device.wait_for_fences(
-            &[self.sync_objects.inflight_fences[self.current_frame]],
-            true,
-            u64::MAX)
-        } {
-            return Err("[ERR] Failed to wait for fence".into());
-        }
+    pub fn draw_frame(&mut self, ctx: &VulkanContext, swapchain: &Swapchain, pipeline: &Pipeline) -> Result<(), Box<dyn Error>> {
+        let current_fences = [self.sync_objects.inflight_fences[self.current_frame]];
+        let current_wait_semaphores = [self.sync_objects.present_complete_semaphores[self.current_frame]];
+        let current_signal_semaphores = [self.sync_objects.render_finish_semaphores[self.current_frame]];
+        let current_command_buffers = [self.command_buffers[self.current_frame]];
 
-        let (image_index, acquire_result) = unsafe { swapchain.loader.acquire_next_image(
+        unsafe { ctx.device.wait_for_fences(
+            &current_fences,
+            true,
+            u64::MAX)?
+        };
+
+        let (image_index, acquire_result) = match unsafe { swapchain.loader.acquire_next_image(
             swapchain.handle,
             u64::MAX,
-            self.sync_objects.present_complete_semaphores[self.current_frame],
-            ash::vk::Fence::null())? };
+            current_wait_semaphores[0],
+            ash::vk::Fence::null())
+        } {
+            Ok(result ) => result,
+            Err(ash::vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+                return Err(Box::new(ash::vk::Result::ERROR_OUT_OF_DATE_KHR));
+            }
+            Err(e) => return Err(Box::new(e)),
+        };
 
-        if !acquire_result {
-            return Err("[ERR] Failed to acquire swapchain image!".into());
-        }
+        unsafe { ctx.device.reset_fences(&current_fences)? };
+        unsafe { ctx.device.reset_command_buffer(current_command_buffers[0], ash::vk::CommandBufferResetFlags::RELEASE_RESOURCES)? };
+        unsafe {
+            self.record_command_buffer(
+                &ctx.device,
+                &self.command_buffers[self.current_frame],
+                swapchain,
+                pipeline,
+                self.current_frame,
+                image_index as usize)?
+        };
 
-        unsafe { ctx.device.reset_fences(&[self.sync_objects.inflight_fences[self.current_frame]])? };
-        unsafe { ctx.device.reset_command_buffer(self.command_buffers[self.current_frame], ash::vk::CommandBufferResetFlags::RELEASE_RESOURCES)? };
+        // Image submission to queue
+        let wait_semaphore_info = ash::vk::SemaphoreSubmitInfo::default()
+            .semaphore(current_wait_semaphores[0])
+            .stage_mask(ash::vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT);
+
+        let signal_semaphore_info = ash::vk::SemaphoreSubmitInfo::default()
+            .semaphore(current_signal_semaphores[0])
+            .stage_mask(ash::vk::PipelineStageFlags2::ALL_COMMANDS);
+
+        let command_buffer_submit_info = ash::vk::CommandBufferSubmitInfo::default()
+            .command_buffer(current_command_buffers[0]);
+
+        let wait_semaphore_infos = [wait_semaphore_info];
+        let command_buffer_submit_infos = [command_buffer_submit_info];
+        let signal_semaphore_infos = [signal_semaphore_info];
+
+        let submit_info = ash::vk::SubmitInfo2::default()
+            .wait_semaphore_infos(&wait_semaphore_infos)
+            .command_buffer_infos(&command_buffer_submit_infos)
+            .signal_semaphore_infos(&signal_semaphore_infos);
+
+        unsafe { ctx.device.queue_submit2(ctx.queues.graphics, &[submit_info], current_fences[0])? }
+
+        // Image Present
+        let swapchains = [swapchain.handle];
+        let image_indices = [image_index];
+
+        let present_info = ash::vk::PresentInfoKHR::default()
+            .wait_semaphores(&current_signal_semaphores)
+            .swapchains(&swapchains)
+            .image_indices(&image_indices);
+
+        unsafe { swapchain.loader.queue_present(ctx.queues.graphics, &present_info)? };
+
+        self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT as usize;
 
         Ok(())
     }
@@ -409,7 +462,8 @@ impl FrameRenderer {
             Vertex { pos: Vec2::new(-0.5,  0.5), color: Vec3::new(1.0, 1.0, 1.0)},
         ],
         vec![
-            0, 1, 2, 2, 3, 0
+            0, 2, 1,
+            2, 0, 3
         ])
     }
 }

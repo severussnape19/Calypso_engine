@@ -5,6 +5,7 @@ use glm::ext::half_pi;
 
 use crate::{log, pipeline, swapchain::Swapchain, vulkan_context::VulkanContext, warn};
 
+#[repr(C)]
 pub struct Vertex {
     pub pos:   glm::Vec2,
     pub color: glm::Vec3,
@@ -128,8 +129,8 @@ impl Pipeline {
             .depth_clamp_enable(false)
             .rasterizer_discard_enable(false)
             .polygon_mode(ash::vk::PolygonMode::FILL)
-            .cull_mode(ash::vk::CullModeFlags::BACK)
-            .front_face(ash::vk::FrontFace::CLOCKWISE)
+            .cull_mode(ash::vk::CullModeFlags::NONE)
+            .front_face(ash::vk::FrontFace::COUNTER_CLOCKWISE)
             .line_width(1.0f32);
 
         let multisample_stage   = ash::vk::PipelineMultisampleStateCreateInfo::default()
@@ -137,7 +138,7 @@ impl Pipeline {
             .sample_shading_enable(false);
 
         let color_blend_attachment = ash::vk::PipelineColorBlendAttachmentState::default()
-            .blend_enable(true)
+            .blend_enable(false)
             .color_write_mask(ash::vk::ColorComponentFlags::RGBA);
 
         let attachments = [color_blend_attachment];

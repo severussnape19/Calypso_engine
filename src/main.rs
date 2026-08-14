@@ -52,6 +52,16 @@ impl App {
         }
         self.vulkan = None;
     }
+
+    fn draw_frame(&mut self) -> Result<(), Box<dyn Error>> {
+        let context = self.vulkan.as_ref().ok_or("Vulkan context not initialized!")?;
+        let swapchain = self.swapchain.as_ref().ok_or("Swapchain not initialized!")?;
+        let pipeline = self.pipeline.as_ref().ok_or("Pipeline not initalized!")?;
+        let frame_renderer = self.frame_renderer.as_mut().ok_or("Frame renderer not initialized!")?;
+
+        frame_renderer.draw_frame(context, swapchain, pipeline)?;
+        Ok(())
+    }
 }
 
 impl Drop for App {
@@ -123,6 +133,23 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             },
             WindowEvent::RedrawRequested => {
+                if let Some(win) = self.window.as_ref() {
+                    let size = win.inner_size();
+                    if size.width > 0 && size.height > 0 {
+                       if let Err(err) = self.draw_frame() {
+                            // Check if error is due to swapchain invalidation
+                            if let Some(&vk_err) = err.downcast_ref::<vk::Result>() {
+                                if vk_err == vk::Result::ERROR_OUT_OF_DATE_KHR || vk_err == vk::Result::SUBOPTIMAL_KHR {
+                                    todo!();
+                                } else {
+                                    eprintln!("[FATAL] Render error: {err}");
+                                    event_loop.exit();
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
                 self.window.as_ref().unwrap().request_redraw();
             },
             _ => {}
