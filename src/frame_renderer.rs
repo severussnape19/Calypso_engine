@@ -1,12 +1,19 @@
 use core::error;
-use std::{error::Error, ops::BitOr};
+use std::{error::Error, ffi::c_void, ops::BitOr, sync::LazyLock, time::Instant};
 
-use ash::{khr::swapchain, vk::{CommandBuffer, Semaphore}};
-use glm::{ Vec2, Vec3 };
+use ash::{khr::swapchain, nv::descriptor_pool_overallocation, vk::{CommandBuffer, Semaphore}};
+use glm::{ Vec2, Vec3, ext::{look_at, perspective, rotate} };
 
 use crate::{log, pipeline::{self, Pipeline, Vertex}, swapchain::Swapchain, vulkan_context::VulkanContext, warn};
 
 const MAX_FRAMES_IN_FLIGHT: u32 = 2;
+static START_TIME: LazyLock<Instant> = LazyLock::new(Instant::now);
+
+pub struct UniformBufferObject {
+    model: glm::Mat4,
+    view:  glm::Mat4,
+    proj:  glm::Mat4,
+}
 
 pub struct Resources {
     vertices: Vec<Vertex>,
@@ -25,7 +32,11 @@ pub struct FrameRenderer {
     vertex_memory: ash::vk::DeviceMemory,
     index_buffer : ash::vk::Buffer,
     index_memory : ash::vk::DeviceMemory,
+    descriptor_pool: ash::vk::DescriptorPool,
+    uniform_buffers: Vec<ash::vk::Buffer>,
+    uniform_buffers_memory: Vec<ash::vk::DeviceMemory>,
     command_buffers: Vec<ash::vk::CommandBuffer>,
+    uniform_buffers_mapped: Vec<*mut c_void>,
     sync_objects : SyncObjects,
     current_frame: usize,
     framebuffer_resized: bool,
@@ -34,6 +45,8 @@ pub struct FrameRenderer {
 impl FrameRenderer {
 
     pub fn new(ctx: &VulkanContext, swapchain: &Swapchain) -> Result<Self, Box<dyn Error>> {
+        let descriptor_pool = Self::create_descriptor_pool(ctx)?;
+
         let (vertices, indices) = Self::get_data();
         let resources = Resources { vertices, indices };
 
@@ -45,17 +58,36 @@ impl FrameRenderer {
 
         let command_buffers = Self::create_command_buffer(ctx)?;
 
+        let (uniform_buffers, uniform_buffers_memory, uniform_buffers_mapped) =
+            Self::create_uniform_buffer(ctx)?;
+
         Ok( Self{
             resources,
             vertex_buffer,
             vertex_memory,
             index_buffer,
             index_memory,
+            descriptor_pool,
+            uniform_buffers,
+            uniform_buffers_memory,
             command_buffers,
+            uniform_buffers_mapped,
             sync_objects,
             current_frame,
             framebuffer_resized: false,
         } )
+    }
+
+    fn create_descriptor_pool(ctx: &VulkanContext) -> Result<(ash::vk::DescriptorPool), Box<dyn Error>> {
+        let pool_size = ash::vk::DescriptorPoolSize::default()
+            .ty(ash::vk::DescriptorType::UNIFORM_BUFFER)
+            .descriptor_count(MAX_FRAMES_IN_FLIGHT);
+
+        let create_info = ash::vk::DescriptorPoolCreateInfo::default()
+            .flags(ash::vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET)
+            .max_sets(MAX_FRAMES_IN_FLIGHT)
+            .pool_sizes(std::slice::from_ref(&pool_size));
+        Ok(unsafe { ctx.device.create_descriptor_pool(&create_info, None)? })
     }
 
     pub unsafe fn destroy_resources(&mut self, ctx: &VulkanContext) {
@@ -74,6 +106,13 @@ impl FrameRenderer {
             ctx.device.destroy_buffer(self.index_buffer, None);
             ctx.device.free_memory(self.index_memory, None);
             warn!(WARN, "Render objects destroyed!");
+
+            for i in 0..self.uniform_buffers.len() {
+                ctx.device.unmap_memory(self.uniform_buffers_memory[i]);
+                ctx.device.destroy_buffer(self.uniform_buffers[i], None);
+                ctx.device.free_memory(self.uniform_buffers_memory[i], None);
+            }
+            ctx.device.destroy_descriptor_pool(self.descriptor_pool, None);
         }
     }
 
@@ -213,6 +252,38 @@ impl FrameRenderer {
 
         log!(INFO, "Created index buffer!");
         Ok((index_buf, index_mem))
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn create_uniform_buffer(ctx: &VulkanContext
+    ) -> Result<(Vec<ash::vk::Buffer>, Vec<ash::vk::DeviceMemory>, Vec<*mut c_void>), Box<dyn Error>> {
+        let mut ubos: Vec<ash::vk::Buffer> = vec![];
+        let mut ubos_mem: Vec<ash::vk::DeviceMemory> = vec![];
+        let mut ubos_mapped: Vec<*mut c_void> = vec![];
+
+        for i in 0..MAX_FRAMES_IN_FLIGHT {
+            let size = std::mem::size_of::<UniformBufferObject>() as u64;
+            let (buffer, buffer_mem) = Self::create_buffer(
+                ctx,
+                size,
+                ash::vk::BufferUsageFlags::UNIFORM_BUFFER,
+                ash::vk::MemoryPropertyFlags::HOST_VISIBLE | ash::vk::MemoryPropertyFlags::HOST_COHERENT
+            )?;
+            ubos.push(buffer);
+            ubos_mem.push(buffer_mem);
+
+            let mapped_mem = unsafe {
+                ctx.device.map_memory(
+                    buffer_mem,
+                    0,
+                    size,
+                    ash::vk::MemoryMapFlags::default())?
+            };
+
+            ubos_mapped.push(mapped_mem);
+        }
+
+        Ok((ubos, ubos_mem, ubos_mapped))
     }
 
     fn create_command_buffer(ctx: &VulkanContext) -> Result<Vec<ash::vk::CommandBuffer>, Box<dyn Error>> {
@@ -357,6 +428,35 @@ impl FrameRenderer {
         unsafe { device.end_command_buffer(*command_buffer) };
 
         Ok(())
+    }
+
+    fn update_uniform_buffer(&self, swapchain: &Swapchain) {
+        let time: f32 = START_TIME.elapsed().as_secs_f32();
+        let identity = glm::mat4(
+           1.0, 0.0, 0.0, 0.0,
+           0.0, 1.0, 0.0, 0.0,
+           0.0, 0.0, 1.0, 0.0,
+           0.0, 0.0, 0.0, 1.0,
+        );
+
+        let mut ubo: UniformBufferObject = UniformBufferObject {
+            model: rotate(&identity, time * 90.0_f32.to_radians(), glm::vec3(0.0, 0.0, 1.0)),
+            view: look_at(glm::vec3(2.0, 2.0, 2.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 0.0,1.0)),
+            proj: perspective(45_f32.to_radians(), swapchain.config.extent.height as f32, 0.1, 10.0),
+        };
+        ubo.proj[1][1] *= -1.0;
+        /*
+        unsafe { std::ptr::copy_nonoverlapping(
+            &ubo as *const UniformBufferObject,
+            self.uniform_buffers_mapped[self.current_frame] as *mut UniformBufferObject,
+            1)
+        };
+        */
+
+        unsafe {
+            let dst = self.uniform_buffers_mapped[self.current_frame] as *mut UniformBufferObject;
+            *dst = ubo;
+        }
     }
 
     fn create_synchronization_objects(ctx: &VulkanContext, swapchain: &Swapchain) -> Result<SyncObjects, Box<dyn Error>> {

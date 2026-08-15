@@ -69,19 +69,28 @@ impl Pipeline {
     }
 
     pub fn new(ctx: &VulkanContext, swapchain: &Swapchain) -> Result<Self, Box<dyn Error>> {
-        let (shader_module, pipeline_layout, pipeline) = Self::create_graphics_pipeline(ctx, swapchain)?;
-        let descriptor_layout = Self::create_descriptor_set_layout(ctx)?;
+        let descriptor_set_layout = Self::create_descriptor_set_layout(ctx)?;
+        let (shader_module, pipeline_layout, pipeline) =
+            Self::create_graphics_pipeline(ctx, swapchain, &descriptor_set_layout)?;
 
         Ok (Self {
             shader_module,
             layout: pipeline_layout,
             handle: pipeline,
-            descriptor_layout
+            descriptor_layout: descriptor_set_layout
         })
     }
 
     fn create_descriptor_set_layout(ctx: &VulkanContext) -> Result<ash::vk::DescriptorSetLayout, Box<dyn Error>> {
-        let create_info = ash::vk::DescriptorSetLayoutCreateInfo::default();
+        let ubo_layout_binding = ash::vk::DescriptorSetLayoutBinding::default()
+            .binding(0)
+            .descriptor_type(ash::vk::DescriptorType::UNIFORM_BUFFER)
+            .descriptor_count(1)
+            .stage_flags(ash::vk::ShaderStageFlags::VERTEX);
+        let bindings = [ubo_layout_binding];
+
+        let create_info = ash::vk::DescriptorSetLayoutCreateInfo::default()
+            .bindings(&bindings);
 
         log!(INFO, "Descriptor set layout created!");
         Ok(unsafe { ctx.device.create_descriptor_set_layout(&create_info, None)? })
@@ -89,7 +98,8 @@ impl Pipeline {
 
     fn create_graphics_pipeline(
         ctx: &VulkanContext,
-        swapchain: &Swapchain
+        swapchain: &Swapchain,
+        descriptor_set_layout: &ash::vk::DescriptorSetLayout,
     ) -> Result<(ash::vk::ShaderModule, ash::vk::PipelineLayout, ash::vk::Pipeline), Box<dyn Error>> {
 
         let path = Path::new("./shaders/slang.spv");
@@ -154,8 +164,13 @@ impl Pipeline {
             .depth_bounds_test_enable(false)
             .stencil_test_enable(false);
 
-        let pipeline_layout_create_info = ash::vk::PipelineLayoutCreateInfo::default();
-        let pipeline_layout = unsafe { ctx.device.create_pipeline_layout(&pipeline_layout_create_info, None)? };
+        let descriptor_set_layouts = [*descriptor_set_layout];
+        let pipeline_layout_create_info = ash::vk::PipelineLayoutCreateInfo::default()
+            .set_layouts(&descriptor_set_layouts);
+
+        let pipeline_layout = unsafe {
+            ctx.device.create_pipeline_layout(&pipeline_layout_create_info, None)?
+        };
 
         let binding_descriptions  = [Vertex::get_binding_description()];
         let attribute_description = Vertex::get_attribute_descriptions();
