@@ -41,13 +41,13 @@ pub struct Pipeline {
     pub shader_module: ash::vk::ShaderModule,
     pub layout: ash::vk::PipelineLayout,
     pub handle: ash::vk::Pipeline,
-    pub descriptor_layout: ash::vk::DescriptorSetLayout,
+    pub descriptor_set_layout: ash::vk::DescriptorSetLayout,
 }
 
 impl Pipeline {
     pub unsafe fn destroy_resources(&mut self, ctx: &VulkanContext) {
         unsafe {
-            ctx.device.destroy_descriptor_set_layout(self.descriptor_layout, None);
+            ctx.device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
             ctx.device.destroy_shader_module(self.shader_module, None);
             ctx.device.destroy_pipeline_layout(self.layout, None);
             ctx.device.destroy_pipeline(self.handle, None);
@@ -77,7 +77,7 @@ impl Pipeline {
             shader_module,
             layout: pipeline_layout,
             handle: pipeline,
-            descriptor_layout: descriptor_set_layout
+            descriptor_set_layout
         })
     }
 
@@ -139,8 +139,9 @@ impl Pipeline {
             .depth_clamp_enable(false)
             .rasterizer_discard_enable(false)
             .polygon_mode(ash::vk::PolygonMode::FILL)
-            .cull_mode(ash::vk::CullModeFlags::NONE)
+            .cull_mode(ash::vk::CullModeFlags::BACK)
             .front_face(ash::vk::FrontFace::COUNTER_CLOCKWISE)
+            .depth_bias_enable(false)
             .line_width(1.0f32);
 
         let multisample_stage   = ash::vk::PipelineMultisampleStateCreateInfo::default()

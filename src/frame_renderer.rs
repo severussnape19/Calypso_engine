@@ -1,5 +1,5 @@
 use core::error;
-use std::{error::Error, ffi::c_void, ops::BitOr, sync::LazyLock, time::Instant};
+use std::{char::MAX, error::Error, ffi::c_void, ops::BitOr, sync::LazyLock, time::Instant};
 
 use ash::{khr::swapchain, nv::descriptor_pool_overallocation, vk::{CommandBuffer, Semaphore}};
 use glm::{ Vec2, Vec3, ext::{look_at, perspective, rotate} };
@@ -9,6 +9,7 @@ use crate::{log, pipeline::{self, Pipeline, Vertex}, swapchain::Swapchain, vulka
 const MAX_FRAMES_IN_FLIGHT: u32 = 2;
 static START_TIME: LazyLock<Instant> = LazyLock::new(Instant::now);
 
+#[repr(C)]
 pub struct UniformBufferObject {
     model: glm::Mat4,
     view:  glm::Mat4,
@@ -33,6 +34,7 @@ pub struct FrameRenderer {
     index_buffer : ash::vk::Buffer,
     index_memory : ash::vk::DeviceMemory,
     descriptor_pool: ash::vk::DescriptorPool,
+    descriptor_sets: Vec<ash::vk::DescriptorSet>,
     uniform_buffers: Vec<ash::vk::Buffer>,
     uniform_buffers_memory: Vec<ash::vk::DeviceMemory>,
     command_buffers: Vec<ash::vk::CommandBuffer>,
@@ -44,7 +46,7 @@ pub struct FrameRenderer {
 
 impl FrameRenderer {
 
-    pub fn new(ctx: &VulkanContext, swapchain: &Swapchain) -> Result<Self, Box<dyn Error>> {
+    pub fn new(ctx: &VulkanContext, swapchain: &Swapchain, pipeline: &Pipeline) -> Result<Self, Box<dyn Error>> {
         let descriptor_pool = Self::create_descriptor_pool(ctx)?;
 
         let (vertices, indices) = Self::get_data();
@@ -61,6 +63,13 @@ impl FrameRenderer {
         let (uniform_buffers, uniform_buffers_memory, uniform_buffers_mapped) =
             Self::create_uniform_buffer(ctx)?;
 
+        let descriptor_sets = Self::create_descriptor_sets(
+            ctx,
+            pipeline.descriptor_set_layout,
+            descriptor_pool,
+            &uniform_buffers
+        )?;
+
         Ok( Self{
             resources,
             vertex_buffer,
@@ -68,6 +77,7 @@ impl FrameRenderer {
             index_buffer,
             index_memory,
             descriptor_pool,
+            descriptor_sets,
             uniform_buffers,
             uniform_buffers_memory,
             command_buffers,
@@ -78,20 +88,9 @@ impl FrameRenderer {
         } )
     }
 
-    fn create_descriptor_pool(ctx: &VulkanContext) -> Result<(ash::vk::DescriptorPool), Box<dyn Error>> {
-        let pool_size = ash::vk::DescriptorPoolSize::default()
-            .ty(ash::vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(MAX_FRAMES_IN_FLIGHT);
-
-        let create_info = ash::vk::DescriptorPoolCreateInfo::default()
-            .flags(ash::vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET)
-            .max_sets(MAX_FRAMES_IN_FLIGHT)
-            .pool_sizes(std::slice::from_ref(&pool_size));
-        Ok(unsafe { ctx.device.create_descriptor_pool(&create_info, None)? })
-    }
-
     pub unsafe fn destroy_resources(&mut self, ctx: &VulkanContext) {
         unsafe {
+            let _ = ctx.device.device_wait_idle();
             ctx.device.free_command_buffers(ctx.command_pool, &self.command_buffers);
 
             for i in 0..self.sync_objects.present_complete_semaphores.len() {
@@ -114,6 +113,53 @@ impl FrameRenderer {
             }
             ctx.device.destroy_descriptor_pool(self.descriptor_pool, None);
         }
+    }
+
+    fn create_descriptor_pool(ctx: &VulkanContext) -> Result<(ash::vk::DescriptorPool), Box<dyn Error>> {
+        let pool_size = ash::vk::DescriptorPoolSize::default()
+            .ty(ash::vk::DescriptorType::UNIFORM_BUFFER)
+            .descriptor_count(MAX_FRAMES_IN_FLIGHT);
+
+        let create_info = ash::vk::DescriptorPoolCreateInfo::default()
+            .flags(ash::vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET)
+            .max_sets(MAX_FRAMES_IN_FLIGHT)
+            .pool_sizes(std::slice::from_ref(&pool_size));
+        Ok(unsafe { ctx.device.create_descriptor_pool(&create_info, None)? })
+    }
+
+    fn create_descriptor_sets(
+        ctx: &VulkanContext,
+        descriptor_set_layout: ash::vk::DescriptorSetLayout,
+        descriptor_pool: ash::vk::DescriptorPool,
+        uniform_buffers: &[ash::vk::Buffer]
+    ) -> Result<Vec<ash::vk::DescriptorSet>, Box<dyn Error>> {
+        // one descriptor set for each frame in flight
+        let layouts: Vec<ash::vk::DescriptorSetLayout> = vec![descriptor_set_layout; MAX_FRAMES_IN_FLIGHT as usize];
+        let alloc_info = ash::vk::DescriptorSetAllocateInfo::default()
+            .descriptor_pool(descriptor_pool)
+            .set_layouts(&layouts);
+
+        let descriptor_sets = unsafe { ctx.device.allocate_descriptor_sets(&alloc_info)? };
+
+        // Descriptor sets are allocated but not yet configured
+        for i in 0..MAX_FRAMES_IN_FLIGHT as usize {
+            let buffer_info = ash::vk::DescriptorBufferInfo::default()
+                .buffer(uniform_buffers[i])
+                .offset(0_u64)
+                .range(std::mem::size_of::<UniformBufferObject>() as u64);
+
+            let descriptors_write = ash::vk::WriteDescriptorSet::default()
+                .dst_set(descriptor_sets[i])
+                .dst_array_element(0_u32)
+                .descriptor_count(1_u32)
+                .descriptor_type(ash::vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&buffer_info));
+
+            unsafe { ctx.device.update_descriptor_sets(
+                std::slice::from_ref(&descriptors_write),
+                &[]); }
+        }
+        Ok(descriptor_sets)
     }
 
     fn create_buffer(
@@ -170,6 +216,8 @@ impl FrameRenderer {
 
         unsafe { ctx.device.queue_submit(ctx.queues.graphics, &submit_info, ash::vk::Fence::null())? };
         unsafe { ctx.device.queue_wait_idle(ctx.queues.graphics)? }
+
+        unsafe { ctx.device.free_command_buffers(ctx.command_pool, &command_buffer); }
 
         Ok(())
     }
@@ -414,7 +462,24 @@ impl FrameRenderer {
         unsafe { device.cmd_bind_vertex_buffers(*command_buffer, 0, &vert_buffers, &vert_buf_offsets); }
         unsafe { device.cmd_bind_index_buffer(*command_buffer, self.index_buffer, 0u64, ash::vk::IndexType::UINT16) };
 
-        unsafe { device.cmd_draw_indexed(*command_buffer, self.resources.indices.len() as u32, 1u32, 0, 0, 0) };
+        let dynamic_offsets = [];
+
+        unsafe { device.cmd_bind_descriptor_sets(
+            *command_buffer,
+            ash::vk::PipelineBindPoint::GRAPHICS,
+            pipeline.layout, 0,
+            std::slice::from_ref(&self.descriptor_sets[self.current_frame]),
+            &dynamic_offsets)
+        };
+
+        unsafe { device.cmd_draw_indexed(
+            *command_buffer,
+            self.resources.indices.len() as u32,
+            1_u32,
+            0,
+            0,
+            0)
+        };
 
         unsafe { device.cmd_end_rendering(*command_buffer) };
 
@@ -442,17 +507,10 @@ impl FrameRenderer {
         let mut ubo: UniformBufferObject = UniformBufferObject {
             model: rotate(&identity, time * 90.0_f32.to_radians(), glm::vec3(0.0, 0.0, 1.0)),
             view: look_at(glm::vec3(2.0, 2.0, 2.0), glm::vec3(0.0, 0.0, 0.0), glm::vec3(0.0, 0.0,1.0)),
-            proj: perspective(45_f32.to_radians(), swapchain.config.extent.height as f32, 0.1, 10.0),
+            proj: perspective(45_f32.to_radians(), (swapchain.config.extent.width / swapchain.config.extent.height) as f32, 0.1, 10.0),
         };
-        ubo.proj[1][1] *= -1.0;
-        /*
-        unsafe { std::ptr::copy_nonoverlapping(
-            &ubo as *const UniformBufferObject,
-            self.uniform_buffers_mapped[self.current_frame] as *mut UniformBufferObject,
-            1)
-        };
-        */
 
+        ubo.proj[1][1] *= -1.0;
         unsafe {
             let dst = self.uniform_buffers_mapped[self.current_frame] as *mut UniformBufferObject;
             *dst = ubo;
@@ -514,6 +572,8 @@ impl FrameRenderer {
                 self.current_frame,
                 image_index as usize)?
         };
+
+        self.update_uniform_buffer(swapchain);
 
         // Image submission to queue
         let wait_semaphore_info = ash::vk::SemaphoreSubmitInfo::default()

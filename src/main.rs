@@ -11,8 +11,9 @@ mod vulkan_context;
 mod swapchain;
 mod pipeline;
 mod frame_renderer;
-use vulkan_context::VulkanContext;
+mod mesh;
 
+use vulkan_context::VulkanContext;
 use crate::swapchain::Swapchain;
 use crate::frame_renderer::FrameRenderer;
 
@@ -104,7 +105,7 @@ impl ApplicationHandler for App {
                 }
             };
 
-            let frame_renderer_ = match FrameRenderer::new(&vulkan, &swapchain) {
+            let frame_renderer_ = match FrameRenderer::new(&vulkan, &swapchain, &pipeline_) {
                 Ok(fr) => fr,
                 Err(e) => {
                     error!(ERROR, "Failed to create frame renderer: {e}");
