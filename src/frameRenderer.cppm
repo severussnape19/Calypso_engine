@@ -19,21 +19,20 @@ import Context;
 import swapchain;
 import pipeline;
 import math;
+import mesh;
 
 constexpr usize MAX_FRAMES_INFLIGHT =  2;
 
-
-
 export class FrameRenderer {
 public:
-    explicit FrameRenderer(VulkanContext const& context, Swapchain & swapchain, Pipeline const& pipeline, GLFWwindow* window)
+    explicit FrameRenderer(VulkanContext const& context, Swapchain & swapchain, Pipeline const& pipeline,
+            GLFWwindow* window, Mesh const& mesh)
         : context_(context)
         , swapchain_(swapchain)
         , pipeline_(pipeline)
         , window_(window)
+        , mesh_(mesh)
     {
-        createVertexBuffer();
-        createIndexBuffer();
         createCommandBuffer();
         createSyncObjects();
     }
@@ -135,12 +134,8 @@ private:
         commandBuffers_[curIdx].bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline_.getPipeline());
 
         // Bind vertex and index buffers during rendering
-        commandBuffers_[curIdx].bindVertexBuffers(0, *vertexBuffer_, {0});
-        commandBuffers_[curIdx].bindIndexBuffer(*indexBuffer_, 0, vk::IndexType::eUint16);
-
         // Draw calls
-        //commandBuffer_[curIdx].draw(static_cast<u32>(vertices.size()), 1u, 0u, 0u);
-        commandBuffers_[curIdx].drawIndexed(static_cast<u32>(indices.size()), 1u, 0u, 0u, 0u);
+        mesh_.draw(cmdBuf);
 
         commandBuffers_[curIdx].endRendering();
 
@@ -319,6 +314,7 @@ private:
     VulkanContext const& context_;
     Swapchain&           swapchain_;
     Pipeline      const& pipeline_;
+    Mesh          const& mesh_;
     GLFWwindow*   window_ = nullptr;
 
     std::vector<vk::raii::CommandBuffer> commandBuffers_{};

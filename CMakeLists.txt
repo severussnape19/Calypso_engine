@@ -20,6 +20,8 @@ target_sources(app
       src/pipeline.cppm
       src/frameRenderer.cppm
       src/math.cppm
+      src/mesh.cppm
+      src/buffer.cppm
 )
 
 target_include_directories(app PRIVATE

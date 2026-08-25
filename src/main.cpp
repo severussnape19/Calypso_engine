@@ -8,6 +8,7 @@ import Context;
 import swapchain;
 import pipeline;
 import frameRenderer;
+import mesh;
 
 auto main(i32 argc, char* argv[]) -> i32 {
     try {
@@ -25,8 +26,9 @@ auto main(i32 argc, char* argv[]) -> i32 {
 
         VulkanContext context(true);
         Swapchain swapchain(context, window);
-        Pipeline pipeline(context, swapchain);
-        FrameRenderer app(context, swapchain, pipeline, window);
+        Mesh mesh(context);
+        Pipeline pipeline(context, swapchain, mesh);
+        FrameRenderer app(context, swapchain, pipeline, window, mesh);
         glfwSetWindowUserPointer(window, &app);
         glfwSetFramebufferSizeCallback(window, *app.framebufferResizeCallback);
         app.run();

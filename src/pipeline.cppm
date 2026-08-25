@@ -12,14 +12,15 @@ import types;
 import Context;
 import swapchain;
 import math;
-
+import mesh;
 
 /* owns shader modules, Descriptor set layouts, pipeline layout and ofc the object itself */
 export class Pipeline {
 public:
-    explicit Pipeline(VulkanContext const& context, Swapchain const& swapchain) noexcept
+    explicit Pipeline(VulkanContext const& context, Swapchain const& swapchain, Mesh& mesh) noexcept
         : context_(context)
         , swapchain_(swapchain)
+        , mesh_(mesh)
     {
         createGraphicsPipeline();
     }
@@ -72,8 +73,8 @@ private:
             .setModule(shader_module)
             .setPName("fragMain");
 
-        auto bindingDescription   = Vertex::getBindingDescription();
-        auto attributeDescriptions = Vertex::getAttributeDescriptions();
+        auto [bindingDescription, attributeDescriptions] = mesh_.get_binding_descriptions();
+
         vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
         vertexInputInfo
             .setVertexBindingDescriptionCount(1u)
@@ -191,6 +192,7 @@ private:
 private:
     VulkanContext const& context_;
     Swapchain     const& swapchain_;
+    Mesh& mesh_;
 
     vk::raii::PipelineLayout      pipelineLayout_      = nullptr;
     vk::raii::Pipeline            graphicsPipeline_    = nullptr;
