@@ -27,6 +27,15 @@ pub struct SyncObjects {
     pub inflight_fences: Vec<ash::vk::Fence>,
 }
 
+pub struct DeviceBuffer {
+    vertex: ash::vk::Buffer,
+    vertex_memory: ash::vk::DeviceMemory,
+    index_buffer : ash::vk::Buffer,
+    index_memory : ash::vk::DeviceMemory,
+    uniform_buffers: Vec<ash::vk::Buffer>,
+    uniform_buffers_memory: Vec<ash::vk::DeviceMemory>,
+}
+
 pub struct FrameRenderer {
     resources: Resources,
     vertex_buffer: ash::vk::Buffer,
@@ -248,7 +257,7 @@ impl FrameRenderer {
             ash::vk::MemoryPropertyFlags::DEVICE_LOCAL,
         )?;
 
-        unsafe { Self::copy_command_buffer(ctx, staging_buffer, vertex_buffer, buffer_size) };
+        unsafe { Self::copy_command_buffer(ctx, staging_buffer, vertex_buffer, buffer_size)? };
 
         unsafe {
             ctx.device.destroy_buffer(staging_buffer, None);

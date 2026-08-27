@@ -1,6 +1,7 @@
 use std::{error::Error, mem::swap};
 
 use ash::khr::{get_surface_capabilities2, swapchain};
+use winit::window;
 
 use crate::{log, vulkan_context::{self, DeviceQueues, VulkanContext}, warn};
 
@@ -98,7 +99,8 @@ impl Swapchain {
         -> Result<SwapchainConfig, Box<dyn Error>> {
 
         // thriple buffering if available else double buffering
-        let mut min_image_count: u32 = 3u32.min(surface_capabilities.min_image_count);
+        //let mut min_image_count: u32 = 3u32.max(surface_capabilities.min_image_count);
+        let mut min_image_count = 2_u32;
         let max_image_count: u32 = surface_capabilities.max_image_count;
 
         if max_image_count > 0 && min_image_count > max_image_count {
@@ -115,18 +117,22 @@ impl Swapchain {
         let surface_format = surface_formats
             .iter()
             .find(|&fmt| {
-                fmt.format == ash::vk::Format::B8G8R8_SRGB &&
+                fmt.format == ash::vk::Format::B8G8R8A8_SRGB &&
                 fmt.color_space == ash::vk::ColorSpaceKHR::SRGB_NONLINEAR
             })
             .or_else(|| surface_formats.first())
             .copied()
             .unwrap();
 
+        let cur_extent = surface_capabilities.current_extent;
         let swapchain_extent =
-            if surface_capabilities.current_extent.width >= surface_capabilities.max_image_extent.width {
-                surface_capabilities.max_image_extent
-            } else {
+            if surface_capabilities.current_extent.width != u32::MAX {
                 surface_capabilities.current_extent
+            } else {
+                ash::vk::Extent2D {
+                    width:  cur_extent.width.clamp(surface_capabilities.min_image_extent.width, surface_capabilities.max_image_extent.width),
+                    height: cur_extent.height.clamp(surface_capabilities.min_image_extent.height, surface_capabilities.max_image_extent.height),
+                }
             };
 
         log!(INFO, "width: {} | height: {}", swapchain_extent.width, swapchain_extent.height);

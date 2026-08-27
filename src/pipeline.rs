@@ -140,7 +140,7 @@ impl Pipeline {
             .rasterizer_discard_enable(false)
             .polygon_mode(ash::vk::PolygonMode::FILL)
             .cull_mode(ash::vk::CullModeFlags::BACK)
-            .front_face(ash::vk::FrontFace::COUNTER_CLOCKWISE)
+            .front_face(ash::vk::FrontFace::CLOCKWISE)
             .depth_bias_enable(false)
             .line_width(1.0f32);
 
