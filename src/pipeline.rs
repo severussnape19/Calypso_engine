@@ -6,6 +6,7 @@ use glm::ext::half_pi;
 use crate::{log, pipeline, swapchain::Swapchain, vulkan_context::VulkanContext, warn};
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct Vertex {
     pub pos:   glm::Vec2,
     pub color: glm::Vec3,
