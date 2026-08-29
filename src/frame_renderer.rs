@@ -98,6 +98,13 @@ impl FrameRenderer {
                 ctx.device.destroy_semaphore(self.sync_objects.render_finish_semaphores[i], None);
                 ctx.device.destroy_fence(self.sync_objects.inflight_fences[i], None);
             }
+
+            ctx.device.destroy_buffer(self.vbo.handle, None);
+            ctx.device.destroy_buffer(self.ibo.handle, None);
+
+            ctx.device.free_memory(self.vbo.memory, None);
+            ctx.device.free_memory(self.ibo.memory, None);
+
             warn!(WARN, "Render objects destroyed!");
 
             for i in 0..self.uniform_buffers.len() {

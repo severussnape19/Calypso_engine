@@ -95,6 +95,7 @@ impl DeviceBuffer {
 
         unsafe { ctx.device.unmap_memory(staging_buffer_memory) };
 
+
         Ok(Self {
             handle: staging_buffer,
             memory: staging_buffer_memory,
@@ -121,6 +122,9 @@ impl DeviceBuffer {
         )?;
 
         Self::copy_command_buffer(ctx, staging_buffer.handle, vertex_buffer, size);
+
+        Self::destroy_resources(&staging_buffer, ctx);
+
         Ok (
             Self {
                 handle: vertex_buffer,
@@ -149,6 +153,8 @@ impl DeviceBuffer {
         )?;
 
         Self::copy_command_buffer(ctx, staging_buffer.handle, index_buffer, size);
+
+        Self::destroy_resources(&staging_buffer, ctx);
         Ok (
             Self {
                 handle: index_buffer,
