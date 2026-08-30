@@ -13,6 +13,9 @@ mod pipeline;
 mod frame_renderer;
 mod mesh;
 mod buffer;
+mod sync;
+mod uniform;
+mod descriptor;
 
 use vulkan_context::VulkanContext;
 use crate::swapchain::Swapchain;

@@ -1,6 +1,6 @@
 use std::{error::Error, ffi::c_void};
 
-use crate::{pipeline::Vertex, vulkan_context::VulkanContext};
+use crate::{mesh::Vertex, vulkan_context::VulkanContext};
 
 pub struct DeviceBuffer {
     pub handle: ash::vk::Buffer,
@@ -123,7 +123,7 @@ impl DeviceBuffer {
 
         Self::copy_command_buffer(ctx, staging_buffer.handle, vertex_buffer, size);
 
-        Self::destroy_resources(&staging_buffer, ctx);
+        Self::destroy_resources(&staging_buffer, &ctx.device);
 
         Ok (
             Self {
@@ -154,7 +154,7 @@ impl DeviceBuffer {
 
         Self::copy_command_buffer(ctx, staging_buffer.handle, index_buffer, size);
 
-        Self::destroy_resources(&staging_buffer, ctx);
+        Self::destroy_resources(&staging_buffer, &ctx.device);
         Ok (
             Self {
                 handle: index_buffer,
@@ -166,10 +166,10 @@ impl DeviceBuffer {
         )
     }
 
-    pub fn destroy_resources(&self, ctx: &VulkanContext) {
+    pub fn destroy_resources(&self, device: &ash::Device) {
         unsafe {
-            ctx.device.destroy_buffer(self.handle, None);
-            ctx.device.free_memory(self.memory, None);
+            device.destroy_buffer(self.handle, None);
+            device.free_memory(self.memory, None);
         }
     }
 }

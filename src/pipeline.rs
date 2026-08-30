@@ -3,39 +3,14 @@ use std::{error::Error, ffi::{CString, c_char}, fs::File, path::{self, Path}};
 use ash::khr::swapchain;
 use glm::ext::half_pi;
 
-use crate::{log, pipeline, swapchain::Swapchain, vulkan_context::VulkanContext, warn};
+use crate::{log, pipeline, swapchain::Swapchain, vulkan_context::VulkanContext, warn, mesh::Vertex};
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct Vertex {
-    pub pos:   glm::Vec2,
-    pub color: glm::Vec3,
-}
-
-impl Vertex {
-    pub fn get_binding_description() -> ash::vk::VertexInputBindingDescription {
-        ash::vk::VertexInputBindingDescription {
-            binding: 0u32,
-            stride: size_of::<Vertex>() as u32,
-            input_rate: ash::vk::VertexInputRate::VERTEX,
-        }
-    }
-
-    pub fn get_attribute_descriptions() -> [ash::vk::VertexInputAttributeDescription; 2] {
-        let description_1 = ash::vk::VertexInputAttributeDescription::default()
-            .location(0u32)
-            .binding(0u32)
-            .format(ash::vk::Format::R32G32_SFLOAT)
-            .offset(std::mem::offset_of!(Vertex, pos) as u32);
-
-        let description_2 = ash::vk::VertexInputAttributeDescription::default()
-            .location(1u32)
-            .binding(0u32)
-            .format(ash::vk::Format::R32G32B32_SFLOAT)
-            .offset(std::mem::offset_of!(Vertex, color) as u32);
-
-        [description_1, description_2]
-    }
+pub struct PipelineConfig<'a> {
+    pub shader_path: &'a std::path::Path,
+    pub vert_entry:  &'a str,
+    pub frag_entry:  &'a str,
+    pub cull_mode:   ash::vk::CullModeFlags,
+    pub topology:    ash::vk::PrimitiveTopology,
 }
 
 pub struct Pipeline {

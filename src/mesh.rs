@@ -1,5 +1,7 @@
 use glm::{ Vec2, Vec3 };
 
+/* vao, ibo and Vertex */
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Vertex {
