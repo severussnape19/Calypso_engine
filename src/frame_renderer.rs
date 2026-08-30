@@ -275,25 +275,6 @@ impl FrameRenderer {
         }
     }
 
-    fn create_synchronization_objects(ctx: &VulkanContext, swapchain: &Swapchain) -> Result<SyncObjects, Box<dyn Error>> {
-        let semaphore_info = ash::vk::SemaphoreCreateInfo::default();
-        let fence_info = ash::vk::FenceCreateInfo::default().flags(ash::vk::FenceCreateFlags::SIGNALED);
-
-        let num_objs = MAX_FRAMES_IN_FLIGHT as usize;
-
-        let mut present_complete_semaphores: Vec<ash::vk::Semaphore> = Vec::with_capacity(num_objs);
-        let mut render_finish_semaphores: Vec<ash::vk::Semaphore> = Vec::with_capacity(num_objs);
-        let mut inflight_fences: Vec<ash::vk::Fence> = Vec::with_capacity(num_objs);
-
-        for i in 0..num_objs {
-            present_complete_semaphores.push(unsafe { ctx.device.create_semaphore(&semaphore_info, None)? });
-            render_finish_semaphores.push(unsafe { ctx.device.create_semaphore(&semaphore_info, None)? });
-            inflight_fences.push(unsafe { ctx.device.create_fence(&fence_info, None)? });
-        }
-        log!(INFO, "Sync objects created!");
-        Ok(SyncObjects { present_complete_semaphores, render_finish_semaphores, inflight_fences })
-    }
-
     pub fn draw_frame(&mut self, ctx: &VulkanContext, swapchain: &Swapchain, pipeline: &Pipeline) -> Result<(), Box<dyn Error>> {
         let current_fences = [self.sync_objects.inflight_fences[self.current_frame]];
         let current_wait_semaphores = [self.sync_objects.present_complete_semaphores[self.current_frame]];
