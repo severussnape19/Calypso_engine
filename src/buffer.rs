@@ -11,7 +11,7 @@ pub struct DeviceBuffer {
 }
 
 impl DeviceBuffer {
-    pub fn create_buffer(
+    pub fn new(
         ctx: &VulkanContext,
         buffer_size: ash::vk::DeviceSize,
         usage_bits: ash::vk::BufferUsageFlags,
@@ -71,12 +71,12 @@ impl DeviceBuffer {
         Ok(())
     }
 
-    fn create_buffer_from_slice<T: Copy>(
+    pub fn create_buffer_from_slice<T: Copy>(
         ctx: &VulkanContext,
         data: &[T]
     ) -> Result<Self, Box<dyn Error>> {
         let size =  std::mem::size_of_val(data) as ash::vk::DeviceSize;
-        let (staging_buffer, staging_buffer_memory) = Self::create_buffer(
+        let (staging_buffer, staging_buffer_memory) = Self::new(
             ctx,
             size,
             ash::vk::BufferUsageFlags::TRANSFER_SRC,
@@ -114,7 +114,7 @@ impl DeviceBuffer {
         let staging_buffer: DeviceBuffer = Self::create_buffer_from_slice(ctx, data)?;
         let size = staging_buffer.size;
 
-        let (vertex_buffer, vertex_buffer_memory) = Self::create_buffer(
+        let (vertex_buffer, vertex_buffer_memory) = Self::new(
             ctx,
             size,
             usage_bits | ash::vk::BufferUsageFlags::TRANSFER_DST,
@@ -145,7 +145,7 @@ impl DeviceBuffer {
         let staging_buffer: DeviceBuffer = Self::create_buffer_from_slice(ctx, data)?;
         let size = staging_buffer.size;
 
-        let (index_buffer, index_buffer_memory) = Self::create_buffer(
+        let (index_buffer, index_buffer_memory) = Self::new(
             ctx,
             size,
             usage_bits | ash::vk::BufferUsageFlags::TRANSFER_DST,
@@ -164,6 +164,22 @@ impl DeviceBuffer {
                 property_flags
             }
         )
+    }
+
+    pub fn find_memory_type(
+        ctx: &VulkanContext,
+        type_bits: u32,
+        properties:
+        ash::vk::MemoryPropertyFlags
+    ) -> Result<u32, Box<dyn Error>> {
+        let memory_properties = unsafe { ctx.instance.get_physical_device_memory_properties(ctx.physical_device) };
+
+        for i in 0..memory_properties.memory_type_count {
+            if (type_bits & (1 << i)) != 0 && memory_properties.memory_types[i as usize].property_flags.contains(properties)  {
+                return Ok(i);
+            }
+        }
+        Err("[ERR] Could not find required memory properties".into())
     }
 
     pub fn destroy_resources(&self, device: &ash::Device) {

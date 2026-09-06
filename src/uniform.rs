@@ -25,7 +25,7 @@ impl UniformBuffer {
 
         for _ in 0..frames {
             let size = std::mem::size_of::<UniformBufferObject>() as u64;
-            let (buf, buf_mem) = DeviceBuffer::create_buffer(
+            let (buf, buf_mem) = DeviceBuffer::new(
                 ctx,
                 size,
                 ash::vk::BufferUsageFlags::UNIFORM_BUFFER,

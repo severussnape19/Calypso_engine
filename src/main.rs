@@ -16,6 +16,8 @@ mod buffer;
 mod sync;
 mod uniform;
 mod descriptor;
+mod textures;
+mod image;
 
 use vulkan_context::VulkanContext;
 use crate::swapchain::Swapchain;
