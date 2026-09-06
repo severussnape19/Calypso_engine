@@ -11,6 +11,8 @@ pub struct DeviceBuffer {
 }
 
 impl DeviceBuffer {
+
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(
         ctx: &VulkanContext,
         buffer_size: ash::vk::DeviceSize,
