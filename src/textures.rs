@@ -1,10 +1,10 @@
 use std::{error::Error, ffi::c_void, path::Path, ptr};
 use image::{ImageBuffer, Rgba};
 
-use crate::{buffer::DeviceBuffer, vulkan_context::VulkanContext};
+use crate::{buffer::DeviceBuffer, image::DeviceImage, vulkan_context::VulkanContext};
 
 pub struct Texture {
-    image: ImageBuffer<Rgba<u8>, Vec<u8>>,
+    image: DeviceImage,
 }
 
 impl Texture {
@@ -26,20 +26,33 @@ impl Texture {
             ash::vk::MemoryPropertyFlags::HOST_VISIBLE | ash::vk::MemoryPropertyFlags::HOST_COHERENT
         )?;
 
-        let data = unsafe { ctx.device.map_memory(
-            staging_buf_memory,
-            0,
-            image_size,
-            ash::vk::MemoryMapFlags::default(),
-        )? };
-
         unsafe {
+            let data = ctx.device.map_memory(
+                staging_buf_memory,
+                0,
+                image_size,
+                ash::vk::MemoryMapFlags::default(),
+            )?;
+
             std::ptr::copy_nonoverlapping(
                 data,
                 img.as_ptr() as *mut c_void,
-                image_size as usize);
-        }
+                image_size as usize
+            );
 
-        Ok(())
+            ctx.device.unmap_memory(staging_buf_memory);
+        };
+
+        let texture = DeviceImage::new(
+            ctx,
+            tex_width,
+            tex_height,
+            ash::vk::Format::R8G8B8A8_SRGB,
+            ash::vk::ImageTiling::OPTIMAL,
+            ash::vk::ImageUsageFlags::TRANSFER_DST | ash::vk::ImageUsageFlags::SAMPLED,
+            ash::vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        )?;
+
+        Ok(Self { image: texture })
     }
 }
