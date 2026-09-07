@@ -4,7 +4,7 @@ use std::{char::MAX, error::Error, ffi::c_void, ops::BitOr, sync::LazyLock, time
 use ash::{khr::swapchain, nv::descriptor_pool_overallocation, vk::{CommandBuffer, Semaphore}};
 use glm::{ Mat4x2, Vec2, Vec3, ext::{look_at, perspective, rotate} };
 
-use crate::{buffer::DeviceBuffer, descriptor::UniformDescriptor, log, mesh::Mesh, pipeline::{self, Pipeline}, swapchain::Swapchain, sync::SyncObjects, uniform::{self, UniformBuffer, UniformBufferObject}, vulkan_context::VulkanContext, warn};
+use crate::{buffer::DeviceBuffer, command_buffer::CommandBuffers, descriptor::UniformDescriptor, image::DeviceImage, log, mesh::Mesh, pipeline::{self, Pipeline}, swapchain::Swapchain, sync::SyncObjects, uniform::{self, UniformBuffer, UniformBufferObject}, vulkan_context::VulkanContext, warn};
 
 const MAX_FRAMES_IN_FLIGHT: u32 = 2;
 static START_TIME: LazyLock<Instant> = LazyLock::new(Instant::now);
@@ -15,7 +15,7 @@ pub struct FrameRenderer {
     ibo: DeviceBuffer,
     ubo: UniformBuffer,
     uniform_descriptor: UniformDescriptor,
-    command_buffers: Vec<ash::vk::CommandBuffer>,
+    command_buffers: CommandBuffers,
     sync_objects : SyncObjects,
     current_frame: usize,
     framebuffer_resized: bool,
@@ -43,7 +43,10 @@ impl FrameRenderer {
         let sync_objects: SyncObjects = SyncObjects::new(&ctx.device, MAX_FRAMES_IN_FLIGHT as usize)?;
         let current_frame = 0;
 
-        let command_buffers = Self::create_command_buffer(ctx)?;
+        let command_buffers = CommandBuffers::new(
+            &ctx.device,
+            &ctx.command_pool,
+            MAX_FRAMES_IN_FLIGHT)?;
 
         let ubo = UniformBuffer::new(ctx, MAX_FRAMES_IN_FLIGHT as usize)?;
 
@@ -71,14 +74,15 @@ impl FrameRenderer {
     pub unsafe fn destroy_resources(&mut self, ctx: &VulkanContext) {
         unsafe {
             let _ = ctx.device.device_wait_idle();
-            ctx.device.free_command_buffers(ctx.command_pool, &self.command_buffers);
-
+            self.command_buffers.free(&ctx.device, &ctx.command_pool);
             self.sync_objects.destroy(&ctx.device);
-
             warn!(WARN, "Render objects destroyed!");
+
             self.vbo.destroy_resources(&ctx.device);
             self.ibo.destroy_resources(&ctx.device);
             self.ubo.destroy_resources(&ctx.device);
+            warn!(WARN, "Buffer objects destroyed!");
+
             self.uniform_descriptor.destroy_resources(&ctx.device);
         }
     }
@@ -90,40 +94,7 @@ impl FrameRenderer {
             .command_buffer_count(MAX_FRAMES_IN_FLIGHT);
 
         let command_buffers = unsafe { ctx.device.allocate_command_buffers(&alloc_info)? };
-        println!("Command Buffers: {}", command_buffers.len());
         Ok(command_buffers)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn transition_image_layout(
-        device: &ash::Device,
-        command_buffer: &ash::vk::CommandBuffer, image: ash::vk::Image,
-        old_layout: ash::vk::ImageLayout, new_layout: ash::vk::ImageLayout,
-        src_access_mask: ash::vk::AccessFlags2, dst_access_mask: ash::vk::AccessFlags2,
-        src_stage_mask: ash::vk::PipelineStageFlags2, dst_stage_mask: ash::vk::PipelineStageFlags2,
-        aspect_mask: ash::vk::ImageAspectFlags,
-    ) {
-        let barrier = ash::vk::ImageMemoryBarrier2::default()
-            .src_stage_mask(src_stage_mask)
-            .dst_stage_mask(dst_stage_mask)
-            .src_access_mask(src_access_mask)
-            .dst_access_mask(dst_access_mask)
-            .old_layout(old_layout)
-            .new_layout(new_layout)
-            .src_queue_family_index(ash::vk::QUEUE_FAMILY_IGNORED)
-            .dst_queue_family_index(ash::vk::QUEUE_FAMILY_IGNORED)
-            .image(image)
-            .subresource_range(ash::vk::ImageSubresourceRange {
-                aspect_mask,
-                base_mip_level: 0,
-                level_count: 1,
-                base_array_layer:0,
-                layer_count: 1,
-            });
-
-        let mem_barriers = [barrier];
-        let dependency_info = ash::vk::DependencyInfo::default().image_memory_barriers(&mem_barriers);
-        unsafe { device.cmd_pipeline_barrier2(*command_buffer, &dependency_info) };
     }
 
     fn record_command_buffer(
@@ -132,23 +103,20 @@ impl FrameRenderer {
         command_buffer: &ash::vk::CommandBuffer,
         swapchain: &Swapchain,
         pipeline: &Pipeline,
-        current_idx: usize, image_index: usize
+        image_index: usize
     ) -> Result<(), Box<dyn Error>> {
+        // START
+        self.command_buffers.start(device, command_buffer);
 
-        let begin_info = ash::vk::CommandBufferBeginInfo::default()
-            .flags(ash::vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-
-        // Start recording
-        unsafe { device.begin_command_buffer(*command_buffer, &begin_info)? };
-
-        // ---------------- Image and Depth Transitions
+        // ---------------- Image and Depth Transitions -------------------------------------------zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
         // image transition barrier (undefined -> colorAttachmentOptimal)
-        Self::transition_image_layout(
+        DeviceImage::transition_image_layout(
             device, command_buffer, swapchain.images[image_index],
             ash::vk::ImageLayout::UNDEFINED, ash::vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
             ash::vk::AccessFlags2::default(), ash::vk::AccessFlags2::COLOR_ATTACHMENT_WRITE,
             ash::vk::PipelineStageFlags2::TOP_OF_PIPE, ash::vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT,
-            ash::vk::ImageAspectFlags::COLOR);
+            ash::vk::ImageAspectFlags::COLOR
+        );
 
         let color_attachment_info = ash::vk::RenderingAttachmentInfo::default()
             .image_view(swapchain.image_views[image_index])
@@ -158,7 +126,7 @@ impl FrameRenderer {
             .clear_value(ash::vk::ClearValue { color: ash::vk::ClearColorValue::default() });
 
         // Depth image transition
-        Self::transition_image_layout(
+        DeviceImage::transition_image_layout(
             device, command_buffer, swapchain.depth_image,
             ash::vk::ImageLayout::UNDEFINED, ash::vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
             ash::vk::AccessFlags2::default(), ash::vk::AccessFlags2::DEPTH_STENCIL_ATTACHMENT_WRITE,
@@ -173,7 +141,7 @@ impl FrameRenderer {
             .store_op(ash::vk::AttachmentStoreOp::STORE)
             .clear_value(ash::vk::ClearValue { depth_stencil: ash::vk::ClearDepthStencilValue::default().depth(1.0f32).stencil(0)});
 
-        // ------------- Draw Commands
+        // ===------------- Draw Commands ------------------------------------------------------------zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
         let color_attachment_infos = [color_attachment_info];
         let render_info = ash::vk::RenderingInfo::default()
             .render_area(ash::vk::Rect2D::default()
@@ -241,15 +209,14 @@ impl FrameRenderer {
 
         unsafe { device.cmd_end_rendering(*command_buffer) };
 
-        Self::transition_image_layout(
+        DeviceImage::transition_image_layout(
             device, command_buffer, swapchain.images[image_index],
             ash::vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL, ash::vk::ImageLayout::PRESENT_SRC_KHR,
             ash::vk::AccessFlags2::COLOR_ATTACHMENT_WRITE, ash::vk::AccessFlags2::default(),
             ash::vk::PipelineStageFlags2::COLOR_ATTACHMENT_OUTPUT, ash::vk::PipelineStageFlags2::BOTTOM_OF_PIPE,
             ash::vk::ImageAspectFlags::COLOR);
 
-        unsafe { device.end_command_buffer(*command_buffer) };
-
+        self.command_buffers.end(device, command_buffer);
         Ok(())
     }
 
@@ -279,7 +246,7 @@ impl FrameRenderer {
         let current_fences = [self.sync_objects.inflight_fences[self.current_frame]];
         let current_wait_semaphores = [self.sync_objects.present_complete_semaphores[self.current_frame]];
         let current_signal_semaphores = [self.sync_objects.render_finish_semaphores[self.current_frame]];
-        let current_command_buffers = [self.command_buffers[self.current_frame]];
+        let current_command_buffers = [self.command_buffers.buffers[self.current_frame]];
 
         unsafe { ctx.device.wait_for_fences(
             &current_fences,
@@ -305,10 +272,9 @@ impl FrameRenderer {
         unsafe {
             self.record_command_buffer(
                 &ctx.device,
-                &self.command_buffers[self.current_frame],
+                &self.command_buffers.buffers[self.current_frame],
                 swapchain,
                 pipeline,
-                self.current_frame,
                 image_index as usize)?
         };
 
@@ -335,7 +301,11 @@ impl FrameRenderer {
             .command_buffer_infos(&command_buffer_submit_infos)
             .signal_semaphore_infos(&signal_semaphore_infos);
 
-        unsafe { ctx.device.queue_submit2(ctx.queues.graphics, &[submit_info], current_fences[0])? }
+        self.command_buffers.submit(
+            &ctx.device,
+            &ctx.queues.graphics,
+            submit_info,
+            current_fences[0])?;
 
         // Image Present
         let swapchains = [swapchain.handle];

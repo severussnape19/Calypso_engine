@@ -14,11 +14,8 @@ pub struct DeviceImage {
 
 impl DeviceImage {
     pub fn new(
-        ctx: &VulkanContext,
-        width: u32, height: u32,
-        format_: ash::vk::Format,
-        tiling: ash::vk::ImageTiling,
-        usage_flags: ash::vk::ImageUsageFlags,
+        ctx: &VulkanContext, width: u32, height: u32, format_: ash::vk::Format,
+        tiling: ash::vk::ImageTiling, usage_flags: ash::vk::ImageUsageFlags,
         memory_properties: ash::vk::MemoryPropertyFlags,
     ) -> Result<Self, Box<dyn Error>> {
         let depth: u32 = 1;
@@ -52,4 +49,68 @@ impl DeviceImage {
             property_flags: memory_properties
         })
     }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn transition_image_layout(
+        device: &ash::Device,
+        command_buffer: &ash::vk::CommandBuffer, image: ash::vk::Image,
+        old_layout: ash::vk::ImageLayout, new_layout: ash::vk::ImageLayout,
+        src_access_mask: ash::vk::AccessFlags2, dst_access_mask: ash::vk::AccessFlags2,
+        src_stage_mask: ash::vk::PipelineStageFlags2, dst_stage_mask: ash::vk::PipelineStageFlags2,
+        aspect_mask: ash::vk::ImageAspectFlags,
+    ) {
+        let barrier = ash::vk::ImageMemoryBarrier2::default()
+            .src_stage_mask(src_stage_mask)
+            .dst_stage_mask(dst_stage_mask)
+            .src_access_mask(src_access_mask)
+            .dst_access_mask(dst_access_mask)
+            .old_layout(old_layout)
+            .new_layout(new_layout)
+            .src_queue_family_index(ash::vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(ash::vk::QUEUE_FAMILY_IGNORED)
+            .image(image)
+            .subresource_range(ash::vk::ImageSubresourceRange {
+                aspect_mask,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer:0,
+                layer_count: 1,
+            });
+
+        let mem_barriers = [barrier];
+        let dependency_info = ash::vk::DependencyInfo::default().image_memory_barriers(&mem_barriers);
+        unsafe { device.cmd_pipeline_barrier2(*command_buffer, &dependency_info) };
+    }
+
+    pub fn copy_buffer_to_image(
+        device: &ash::Device,
+        cmd_pool: &ash::vk::CommandPool,
+        cmd_buf: &ash::vk::CommandBuffer,
+        buffer: &DeviceBuffer, image: &DeviceImage,
+        width: u32, height: u32,
+    ) -> Result<(), Box<dyn Error>> {
+        let region = ash::vk::BufferImageCopy::default()
+            .buffer_offset(0_u64)
+            .image_offset(ash::vk::Offset3D{x: 0, y: 0, z: 0})
+            .buffer_row_length(0_u32)
+            .buffer_image_height(0_u32)
+            .image_subresource(ash::vk::ImageSubresourceLayers {
+                aspect_mask: ash::vk::ImageAspectFlags::COLOR,
+                mip_level: 0_u32,
+                base_array_layer: 0_u32,
+                layer_count: 1_u32,
+            })
+            .image_extent(ash::vk::Extent3D::default().width(width).height(height).depth(1));
+
+        unsafe { device.cmd_copy_buffer_to_image(
+            *cmd_buf,
+            buffer.handle,
+            image.handle,
+            ash::vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            std::slice::from_ref(&region))
+        };
+
+        Ok(())
+    }
+
 }

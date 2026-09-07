@@ -53,6 +53,8 @@ impl Texture {
             ash::vk::MemoryPropertyFlags::DEVICE_LOCAL,
         )?;
 
+        // copy staging buffer memory to image
+
         Ok(Self { image: texture })
     }
 }
