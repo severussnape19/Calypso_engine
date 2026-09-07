@@ -106,7 +106,7 @@ impl FrameRenderer {
         image_index: usize
     ) -> Result<(), Box<dyn Error>> {
         // START
-        self.command_buffers.start(device, command_buffer);
+        self.command_buffers.begin(device, command_buffer);
 
         // ---------------- Image and Depth Transitions -------------------------------------------zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz
         // image transition barrier (undefined -> colorAttachmentOptimal)

@@ -83,10 +83,10 @@ impl DeviceImage {
     }
 
     pub fn copy_buffer_to_image(
+        &self, buffer: &ash::vk::Buffer,
         device: &ash::Device,
         cmd_pool: &ash::vk::CommandPool,
         cmd_buf: &ash::vk::CommandBuffer,
-        buffer: &DeviceBuffer, image: &DeviceImage,
         width: u32, height: u32,
     ) -> Result<(), Box<dyn Error>> {
         let region = ash::vk::BufferImageCopy::default()
@@ -104,8 +104,8 @@ impl DeviceImage {
 
         unsafe { device.cmd_copy_buffer_to_image(
             *cmd_buf,
-            buffer.handle,
-            image.handle,
+            *buffer,
+            self.handle,
             ash::vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             std::slice::from_ref(&region))
         };

@@ -23,7 +23,7 @@ impl CommandBuffers {
         unsafe { device.free_command_buffers(*cmd_pool, &self.buffers) };
     }
 
-    pub fn start(&self, device: &ash::Device, buffer: &ash::vk::CommandBuffer) -> Result<(), Box<dyn Error>> {
+    pub fn begin(&self, device: &ash::Device, buffer: &ash::vk::CommandBuffer) -> Result<(), Box<dyn Error>> {
         let begin_info = ash::vk::CommandBufferBeginInfo::default()
             .flags(ash::vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
 

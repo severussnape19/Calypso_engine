@@ -1,7 +1,7 @@
 use std::{error::Error, ffi::c_void, path::Path, ptr};
 use image::{ImageBuffer, Rgba};
 
-use crate::{buffer::DeviceBuffer, image::DeviceImage, vulkan_context::VulkanContext};
+use crate::{buffer::DeviceBuffer, command_buffer::CommandBuffers, image::DeviceImage, vulkan_context::VulkanContext};
 
 pub struct Texture {
     image: DeviceImage,
@@ -43,7 +43,7 @@ impl Texture {
             ctx.device.unmap_memory(staging_buf_memory);
         };
 
-        let texture = DeviceImage::new(
+        let texture_image = DeviceImage::new(
             ctx,
             tex_width,
             tex_height,
@@ -54,7 +54,44 @@ impl Texture {
         )?;
 
         // copy staging buffer memory to image
+        let command_buffer = CommandBuffers::new(&ctx.device, &ctx.command_pool, 1)?;
+        command_buffer.begin(&ctx.device, &command_buffer.buffers[0]);
+        DeviceImage::transition_image_layout(
+            &ctx.device,
+            &command_buffer.buffers[0],
+            texture_image.handle,
+            ash::vk::ImageLayout::UNDEFINED,
+            ash::vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            ash::vk::AccessFlags2::default(),
+            ash::vk::AccessFlags2::default(),
+            ash::vk::PipelineStageFlags2::default(),
+            ash::vk::PipelineStageFlags2::default(),
+            ash::vk::ImageAspectFlags::default()
+        );
 
-        Ok(Self { image: texture })
+        texture_image.copy_buffer_to_image(
+            &staging_buf,
+            &ctx.device,
+            &ctx.command_pool,
+            &command_buffer.buffers[0],
+            tex_width,
+            tex_height
+        );
+
+        DeviceImage::transition_image_layout(
+            &ctx.device,
+            &command_buffer.buffers[0],
+            texture_image.handle,
+            ash::vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            ash::vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            ash::vk::AccessFlags2::default(),
+            ash::vk::AccessFlags2::default(),
+            ash::vk::PipelineStageFlags2::default(),
+            ash::vk::PipelineStageFlags2::default(),
+            ash::vk::ImageAspectFlags::default()
+        );
+        command_buffer.end(&ctx.device, &command_buffer.buffers[0]);
+
+        Ok(Self { image: texture_image })
     }
 }
