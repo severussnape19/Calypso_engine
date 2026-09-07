@@ -95,6 +95,8 @@ impl Texture {
         Ok(Self { image: texture_image })
     }
 
+    pub fn create_texture_sampler() -> Result<(), Box<dyn Error>> { todo!() }
+
     pub fn destroy_resources(&mut self, device: &ash::Device) {
         unsafe {
             self.image.destroy_resources(device);

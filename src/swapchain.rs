@@ -227,10 +227,10 @@ impl Swapchain {
             .view_type(ash::vk::ImageViewType::TYPE_2D)
             .subresource_range(ash::vk::ImageSubresourceRange {
                 aspect_mask: ash::vk::ImageAspectFlags::DEPTH,
-                base_mip_level: 0u32,
-                level_count: 1u32,
-                base_array_layer: 0u32,
-                layer_count: 1u32
+                base_mip_level: 0_u32,
+                level_count: 1_u32,
+                base_array_layer: 0_u32,
+                layer_count: 1_u32
             });
 
         Ok(unsafe { ctx.device.create_image_view(&create_info, None)? })
