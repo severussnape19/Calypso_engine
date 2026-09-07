@@ -63,9 +63,9 @@ impl Texture {
             ash::vk::ImageLayout::UNDEFINED,
             ash::vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             ash::vk::AccessFlags2::default(),
-            ash::vk::AccessFlags2::default(),
-            ash::vk::PipelineStageFlags2::default(),
-            ash::vk::PipelineStageFlags2::default(),
+            ash::vk::AccessFlags2::TRANSFER_WRITE,
+            ash::vk::PipelineStageFlags2::TOP_OF_PIPE,
+            ash::vk::PipelineStageFlags2::TRANSFER,
             ash::vk::ImageAspectFlags::default()
         );
 
@@ -84,14 +84,20 @@ impl Texture {
             texture_image.handle,
             ash::vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             ash::vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-            ash::vk::AccessFlags2::default(),
-            ash::vk::AccessFlags2::default(),
-            ash::vk::PipelineStageFlags2::default(),
-            ash::vk::PipelineStageFlags2::default(),
+            ash::vk::AccessFlags2::TRANSFER_WRITE,
+            ash::vk::AccessFlags2::SHADER_READ,
+            ash::vk::PipelineStageFlags2::TRANSFER,
+            ash::vk::PipelineStageFlags2::FRAGMENT_SHADER,
             ash::vk::ImageAspectFlags::default()
         );
         command_buffer.end(&ctx.device, &command_buffer.buffers[0]);
 
         Ok(Self { image: texture_image })
+    }
+
+    pub fn destroy_resources(&mut self, device: &ash::Device) {
+        unsafe {
+            self.image.destroy_resources(device);
+        }
     }
 }

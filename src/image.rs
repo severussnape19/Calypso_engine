@@ -7,6 +7,7 @@ use crate::{buffer::DeviceBuffer, vulkan_context::VulkanContext};
 pub struct DeviceImage {
     pub handle: ash::vk::Image,
     pub memory: ash::vk::DeviceMemory,
+    pub view:   ash::vk::ImageView,
     pub size:   ash::vk::DeviceSize,
     pub usage_flags: ash::vk::ImageUsageFlags,
     pub property_flags: ash::vk::MemoryPropertyFlags,
@@ -41,13 +42,31 @@ impl DeviceImage {
         let image_memory = unsafe { ctx.device.allocate_memory(&alloc_info, None)? };
         unsafe { ctx.device.bind_image_memory(image, image_memory, 0) };
 
+        let image_view = Self::create_view(&ctx.device, &image, format_)?;
+
         Ok(DeviceImage {
             handle: image,
             memory: image_memory,
+            view: image_view,
             size: mem_reqs.size,
             usage_flags,
             property_flags: memory_properties
         })
+    }
+
+    pub fn create_view(device: &ash::Device, image: &ash::vk::Image, format: ash::vk::Format) -> Result<ash::vk::ImageView, Box<dyn Error>> {
+        let view_info = ash::vk::ImageViewCreateInfo::default()
+            .image(*image)
+            .view_type(ash::vk::ImageViewType::TYPE_2D)
+            .format(format)
+            .subresource_range(ash::vk::ImageSubresourceRange::default()
+                .aspect_mask(ash::vk::ImageAspectFlags::COLOR)
+                .base_mip_level(0_u32)
+                .level_count(1_u32)
+                .base_array_layer(0_u32)
+                .layer_count(1_u32)
+            );
+        Ok(unsafe { device.create_image_view(&view_info, None)? })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -113,4 +132,10 @@ impl DeviceImage {
         Ok(())
     }
 
+    pub fn destroy_resources(&mut self, device: &ash::Device) {
+        unsafe {
+            device.destroy_image(self.handle, None);
+            device.destroy_image_view(self.view, None);
+        }
+    }
 }
