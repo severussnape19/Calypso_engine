@@ -146,7 +146,9 @@ impl FrameRenderer {
         let render_info = ash::vk::RenderingInfo::default()
             .render_area(ash::vk::Rect2D::default()
                 .offset(ash::vk::Offset2D::default().x(0).y(0))
-                .extent(swapchain.config.extent))
+                .extent(ash::vk::Extent2D::default()
+                    .height(swapchain.config.extent.height)
+                    .width(swapchain.config.extent.width)))
             .layer_count(1)
             .color_attachments(&color_attachment_infos)
             .depth_attachment(&depth_attachment_info);
@@ -164,7 +166,9 @@ impl FrameRenderer {
 
         let scissor = ash::vk::Rect2D::default()
             .offset(ash::vk::Offset2D::default().x(0).y(0))
-            .extent(swapchain.config.extent);
+            .extent(ash::vk::Extent2D::default()
+                    .height(swapchain.config.extent.height)
+                    .width(swapchain.config.extent.width));
         let scissors = [scissor];
 
         // Bind dynamic variables

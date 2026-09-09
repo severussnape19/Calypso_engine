@@ -1,7 +1,6 @@
 use std::{error::Error, mem::swap};
 
 use ash::khr::{get_surface_capabilities2, swapchain};
-use winit::window;
 
 use crate::{log, vulkan_context::{self, DeviceQueues, VulkanContext}, warn};
 
@@ -99,8 +98,7 @@ impl Swapchain {
         -> Result<SwapchainConfig, Box<dyn Error>> {
 
         // thriple buffering if available else double buffering
-        //let mut min_image_count: u32 = 3u32.max(surface_capabilities.min_image_count);
-        let mut min_image_count = 2_u32;
+        let mut min_image_count: u32 = 3u32.max(surface_capabilities.min_image_count);
         let max_image_count: u32 = surface_capabilities.max_image_count;
 
         if max_image_count > 0 && min_image_count > max_image_count {
@@ -124,15 +122,11 @@ impl Swapchain {
             .copied()
             .unwrap();
 
-        let cur_extent = surface_capabilities.current_extent;
         let swapchain_extent =
-            if surface_capabilities.current_extent.width != u32::MAX {
-                surface_capabilities.current_extent
+            if surface_capabilities.current_extent.width >= surface_capabilities.max_image_extent.width {
+                surface_capabilities.max_image_extent
             } else {
-                ash::vk::Extent2D {
-                    width:  cur_extent.width.clamp(surface_capabilities.min_image_extent.width, surface_capabilities.max_image_extent.width),
-                    height: cur_extent.height.clamp(surface_capabilities.min_image_extent.height, surface_capabilities.max_image_extent.height),
-                }
+                surface_capabilities.current_extent
             };
 
         log!(INFO, "width: {} | height: {}", swapchain_extent.width, swapchain_extent.height);
@@ -227,10 +221,10 @@ impl Swapchain {
             .view_type(ash::vk::ImageViewType::TYPE_2D)
             .subresource_range(ash::vk::ImageSubresourceRange {
                 aspect_mask: ash::vk::ImageAspectFlags::DEPTH,
-                base_mip_level: 0_u32,
-                level_count: 1_u32,
-                base_array_layer: 0_u32,
-                layer_count: 1_u32
+                base_mip_level: 0u32,
+                level_count: 1u32,
+                base_array_layer: 0u32,
+                layer_count: 1u32
             });
 
         Ok(unsafe { ctx.device.create_image_view(&create_info, None)? })

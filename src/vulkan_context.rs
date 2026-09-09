@@ -261,11 +261,13 @@ impl VulkanContext {
             .synchronization2(true);
         let mut extended_dynamic_state = vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT::default()
             .extended_dynamic_state(true); //pnext chains
+        let sampler_anisotropy_feature = vk::PhysicalDeviceFeatures::default().sampler_anisotropy(true);
 
         let mut physical_device_features = vk::PhysicalDeviceFeatures2::default()
             .push_next(&mut vulkan11_features)
             .push_next(&mut vulkan13_features)
-            .push_next(&mut extended_dynamic_state);
+            .push_next(&mut extended_dynamic_state)
+            .features(sampler_anisotropy_feature);
 
         let create_info = vk::DeviceCreateInfo::default()
             .queue_create_infos(&queue_create_infos)

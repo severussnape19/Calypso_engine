@@ -5,6 +5,7 @@ use crate::{buffer::DeviceBuffer, command_buffer::CommandBuffers, image::DeviceI
 
 pub struct Texture {
     image: DeviceImage,
+    sampler: ash::vk::Sampler,
 }
 
 impl Texture {
@@ -45,12 +46,12 @@ impl Texture {
 
         let texture_image = DeviceImage::new(
             ctx,
-            tex_width,
-            tex_height,
+            ash::vk::Extent3D::default().width(tex_width).height(tex_height),
             ash::vk::Format::R8G8B8A8_SRGB,
             ash::vk::ImageTiling::OPTIMAL,
             ash::vk::ImageUsageFlags::TRANSFER_DST | ash::vk::ImageUsageFlags::SAMPLED,
             ash::vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            true
         )?;
 
         // copy staging buffer memory to image
@@ -92,10 +93,35 @@ impl Texture {
         );
         command_buffer.end(&ctx.device, &command_buffer.buffers[0]);
 
-        Ok(Self { image: texture_image })
+        Ok(Self {
+            image: texture_image,
+            sampler: Self::create_texture_sampler(ctx)?
+        })
     }
 
-    pub fn create_texture_sampler() -> Result<(), Box<dyn Error>> { todo!() }
+    pub fn create_texture_sampler(ctx: &VulkanContext) -> Result<ash::vk::Sampler, Box<dyn Error>> {
+        let device_props = unsafe { ctx.instance.get_physical_device_properties(ctx.physical_device) };
+        let sampler_info = ash::vk::SamplerCreateInfo::default()
+            .mag_filter(ash::vk::Filter::LINEAR) // linear interpolation
+            .min_filter(ash::vk::Filter::LINEAR)
+            .mipmap_mode(ash::vk::SamplerMipmapMode::LINEAR)
+            .address_mode_u(ash::vk::SamplerAddressMode::REPEAT)
+            .address_mode_v(ash::vk::SamplerAddressMode::REPEAT)
+            .address_mode_w(ash::vk::SamplerAddressMode::REPEAT)
+            .anisotropy_enable(true)
+            .max_anisotropy(device_props.limits.max_sampler_anisotropy)
+            .compare_enable(false)
+            .compare_op(ash::vk::CompareOp::ALWAYS)
+            .border_color(ash::vk::BorderColor::INT_OPAQUE_BLACK)
+            .unnormalized_coordinates(false)
+            .mip_lod_bias(0_f32)
+            .min_lod(0_f32)
+            .max_lod(0_f32);
+
+        Ok(unsafe {
+            ctx.device.create_sampler(&sampler_info, None)?
+        })
+    }
 
     pub fn destroy_resources(&mut self, device: &ash::Device) {
         unsafe {

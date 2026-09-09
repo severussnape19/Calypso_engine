@@ -7,25 +7,25 @@ use crate::{buffer::DeviceBuffer, vulkan_context::VulkanContext};
 pub struct DeviceImage {
     pub handle: ash::vk::Image,
     pub memory: ash::vk::DeviceMemory,
-    pub view:   ash::vk::ImageView,
+    pub view:   Option<ash::vk::ImageView>,
     pub size:   ash::vk::DeviceSize,
     pub usage_flags: ash::vk::ImageUsageFlags,
     pub property_flags: ash::vk::MemoryPropertyFlags,
 }
 
 impl DeviceImage {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        ctx: &VulkanContext, width: u32, height: u32, format_: ash::vk::Format,
+        ctx: &VulkanContext, extent: ash::vk::Extent3D, format_: ash::vk::Format,
         tiling: ash::vk::ImageTiling, usage_flags: ash::vk::ImageUsageFlags,
-        memory_properties: ash::vk::MemoryPropertyFlags,
+        memory_properties: ash::vk::MemoryPropertyFlags, create_views: bool
     ) -> Result<Self, Box<dyn Error>> {
         let depth: u32 = 1;
         let image_info = ash::vk::ImageCreateInfo::default()
             .format(format_)
-            .extent(ash::vk::Extent3D {
-                width, height, depth
-            }).mip_levels(1)
-            .array_layers(1)
+            .extent(extent)
+            .mip_levels(1_u32)
+            .array_layers(1_u32)
             .samples(ash::vk::SampleCountFlags::TYPE_1)
             .tiling(tiling)
             .usage(usage_flags)
@@ -42,12 +42,15 @@ impl DeviceImage {
         let image_memory = unsafe { ctx.device.allocate_memory(&alloc_info, None)? };
         unsafe { ctx.device.bind_image_memory(image, image_memory, 0) };
 
-        let image_view = Self::create_view(&ctx.device, &image, format_)?;
+        let image_views = match create_views {
+            true => Some(Self::create_view(&ctx.device, &image, format_)?),
+            false => None,
+        };
 
         Ok(DeviceImage {
             handle: image,
             memory: image_memory,
-            view: image_view,
+            view: image_views,
             size: mem_reqs.size,
             usage_flags,
             property_flags: memory_properties
@@ -135,7 +138,9 @@ impl DeviceImage {
     pub fn destroy_resources(&mut self, device: &ash::Device) {
         unsafe {
             device.destroy_image(self.handle, None);
-            device.destroy_image_view(self.view, None);
+            if let Some(view) = self.view {
+                device.destroy_image_view(view, None);
+            }
         }
     }
 }

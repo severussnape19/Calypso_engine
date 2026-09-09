@@ -5,14 +5,6 @@ use glm::ext::half_pi;
 
 use crate::{log, pipeline, swapchain::Swapchain, vulkan_context::VulkanContext, warn, mesh::Vertex};
 
-pub struct PipelineConfig<'a> {
-    pub shader_path: &'a std::path::Path,
-    pub vert_entry:  &'a str,
-    pub frag_entry:  &'a str,
-    pub cull_mode:   ash::vk::CullModeFlags,
-    pub topology:    ash::vk::PrimitiveTopology,
-}
-
 pub struct Pipeline {
     pub shader_module: ash::vk::ShaderModule,
     pub layout: ash::vk::PipelineLayout,
