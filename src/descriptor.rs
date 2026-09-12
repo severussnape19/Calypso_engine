@@ -1,22 +1,28 @@
 use std::error::Error;
 
-use crate::{uniform::{UniformBuffer, UniformBufferObject}, vulkan_context::VulkanContext};
+use crate::{textures::Texture, uniform::{UniformBuffer, UniformBufferObject}, vulkan_context::VulkanContext};
 
-pub struct UniformDescriptor {
+pub struct Descriptor {
     pub pool: ash::vk::DescriptorPool,
     pub sets: Vec<ash::vk::DescriptorSet>
 }
 
-impl UniformDescriptor {
+impl Descriptor {
     pub fn create_descriptor_pool(ctx: &VulkanContext, frames: u32) -> Result<(ash::vk::DescriptorPool), Box<dyn Error>> {
-        let pool_size = ash::vk::DescriptorPoolSize::default()
+        let pool_info_uniform= ash::vk::DescriptorPoolSize::default()
             .ty(ash::vk::DescriptorType::UNIFORM_BUFFER)
             .descriptor_count(frames);
+
+        let pool_info_sampler= ash::vk::DescriptorPoolSize::default()
+            .ty(ash::vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .descriptor_count(frames);
+
+        let pool_size = [pool_info_uniform, pool_info_sampler];
 
         let create_info = ash::vk::DescriptorPoolCreateInfo::default()
             .flags(ash::vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET)
             .max_sets(frames)
-            .pool_sizes(std::slice::from_ref(&pool_size));
+            .pool_sizes(&pool_size);
         Ok(unsafe { ctx.device.create_descriptor_pool(&create_info, None)? })
     }
 
@@ -25,6 +31,7 @@ impl UniformDescriptor {
         descriptor_set_layout: ash::vk::DescriptorSetLayout,
         descriptor_pool: ash::vk::DescriptorPool,
         uniform_buffers: &UniformBuffer,
+        texture: &Texture,
         frames: u32
     ) -> Result<Self, Box<dyn Error>> {
 
@@ -43,15 +50,30 @@ impl UniformDescriptor {
                 .offset(0_u64)
                 .range(std::mem::size_of::<UniformBufferObject>() as u64);
 
-            let descriptors_write = ash::vk::WriteDescriptorSet::default()
+            let image_info = ash::vk::DescriptorImageInfo::default()
+                .sampler(texture.sampler)
+                .image_view(texture.image.view.unwrap())
+                .image_layout(texture.image_layout);
+
+            let descriptors_write_buf = ash::vk::WriteDescriptorSet::default()
                 .dst_set(descriptor_sets[i])
+                .dst_binding(0_u32)
                 .dst_array_element(0_u32)
                 .descriptor_count(1_u32)
                 .descriptor_type(ash::vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(std::slice::from_ref(&buffer_info));
 
+            let descriptors_write_img = ash::vk::WriteDescriptorSet::default()
+                .dst_set(descriptor_sets[i])
+                .dst_binding(1_u32)
+                .dst_array_element(0_u32)
+                .descriptor_count(1_u32)
+                .descriptor_type(ash::vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(std::slice::from_ref(&image_info));
+
+            let descriptor_writes = [descriptors_write_buf, descriptors_write_img];
             unsafe { ctx.device.update_descriptor_sets(
-                std::slice::from_ref(&descriptors_write),
+                &descriptor_writes,
                 &[]); }
         }
         Ok(Self{

@@ -55,7 +55,13 @@ impl Pipeline {
             .descriptor_type(ash::vk::DescriptorType::UNIFORM_BUFFER)
             .descriptor_count(1)
             .stage_flags(ash::vk::ShaderStageFlags::VERTEX);
-        let bindings = [ubo_layout_binding];
+
+        let combined_image_sampler = ash::vk::DescriptorSetLayoutBinding::default()
+            .binding(1_u32)
+            .descriptor_type(ash::vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .descriptor_count(1_u32)
+            .stage_flags(ash::vk::ShaderStageFlags::FRAGMENT);
+        let bindings = [ubo_layout_binding, combined_image_sampler];
 
         let create_info = ash::vk::DescriptorSetLayoutCreateInfo::default()
             .bindings(&bindings);

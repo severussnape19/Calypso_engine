@@ -16,12 +16,18 @@ pub struct DeviceImage {
 impl DeviceImage {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        ctx: &VulkanContext, extent: ash::vk::Extent3D, format_: ash::vk::Format,
-        tiling: ash::vk::ImageTiling, usage_flags: ash::vk::ImageUsageFlags,
-        memory_properties: ash::vk::MemoryPropertyFlags, create_views: bool
+        ctx: &VulkanContext,
+        image_type: ash::vk::ImageType,
+        extent: ash::vk::Extent3D,
+        format_: ash::vk::Format,
+        tiling: ash::vk::ImageTiling,
+        usage_flags: ash::vk::ImageUsageFlags,
+        memory_properties: ash::vk::MemoryPropertyFlags,
+        create_views: bool
     ) -> Result<Self, Box<dyn Error>> {
         let depth: u32 = 1;
         let image_info = ash::vk::ImageCreateInfo::default()
+            .image_type(image_type)
             .format(format_)
             .extent(extent)
             .mip_levels(1_u32)
@@ -29,8 +35,7 @@ impl DeviceImage {
             .samples(ash::vk::SampleCountFlags::TYPE_1)
             .tiling(tiling)
             .usage(usage_flags)
-            .sharing_mode(ash::vk::SharingMode::EXCLUSIVE
-        );
+            .sharing_mode(ash::vk::SharingMode::EXCLUSIVE);
 
         let image = unsafe { ctx.device.create_image(&image_info, None)? };
 
@@ -122,7 +127,7 @@ impl DeviceImage {
                 base_array_layer: 0_u32,
                 layer_count: 1_u32,
             })
-            .image_extent(ash::vk::Extent3D::default().width(width).height(height).depth(1));
+            .image_extent(ash::vk::Extent3D::default().width(width).height(height).depth(1_u32));
 
         unsafe { device.cmd_copy_buffer_to_image(
             *cmd_buf,
@@ -141,6 +146,7 @@ impl DeviceImage {
             if let Some(view) = self.view {
                 device.destroy_image_view(view, None);
             }
+            device.free_memory(self.memory, None);
         }
     }
 }

@@ -4,8 +4,9 @@ use image::{ImageBuffer, Rgba};
 use crate::{buffer::DeviceBuffer, command_buffer::CommandBuffers, image::DeviceImage, vulkan_context::VulkanContext};
 
 pub struct Texture {
-    image: DeviceImage,
-    sampler: ash::vk::Sampler,
+    pub image: DeviceImage,
+    pub sampler: ash::vk::Sampler,
+    pub image_layout: ash::vk::ImageLayout,
 }
 
 impl Texture {
@@ -13,7 +14,7 @@ impl Texture {
         image_path: P,
         ctx: &VulkanContext
     ) -> Result<Self, Box<dyn Error>> {
-        let img = image::open("../textures/texture.jpg")?
+        let img = image::open(image_path)?
             .into_rgba8();
         let tex_width = img.width();
         let tex_height = img.height();
@@ -36,8 +37,8 @@ impl Texture {
             )?;
 
             std::ptr::copy_nonoverlapping(
-                data,
-                img.as_ptr() as *mut c_void,
+                img.as_ptr(),
+                data as *mut u8,
                 image_size as usize
             );
 
@@ -46,7 +47,8 @@ impl Texture {
 
         let texture_image = DeviceImage::new(
             ctx,
-            ash::vk::Extent3D::default().width(tex_width).height(tex_height),
+            ash::vk::ImageType::TYPE_2D,
+            ash::vk::Extent3D::default().width(tex_width).height(tex_height).depth(1_u32),
             ash::vk::Format::R8G8B8A8_SRGB,
             ash::vk::ImageTiling::OPTIMAL,
             ash::vk::ImageUsageFlags::TRANSFER_DST | ash::vk::ImageUsageFlags::SAMPLED,
@@ -67,7 +69,7 @@ impl Texture {
             ash::vk::AccessFlags2::TRANSFER_WRITE,
             ash::vk::PipelineStageFlags2::TOP_OF_PIPE,
             ash::vk::PipelineStageFlags2::TRANSFER,
-            ash::vk::ImageAspectFlags::default()
+            ash::vk::ImageAspectFlags::COLOR
         );
 
         texture_image.copy_buffer_to_image(
@@ -89,13 +91,27 @@ impl Texture {
             ash::vk::AccessFlags2::SHADER_READ,
             ash::vk::PipelineStageFlags2::TRANSFER,
             ash::vk::PipelineStageFlags2::FRAGMENT_SHADER,
-            ash::vk::ImageAspectFlags::default()
+            ash::vk::ImageAspectFlags::COLOR
         );
+
         command_buffer.end(&ctx.device, &command_buffer.buffers[0]);
+
+        let submit_info = ash::vk::SubmitInfo::default()
+            .command_buffers(&command_buffer.buffers);
+        unsafe {
+            ctx.device.queue_submit(ctx.queues.graphics, std::slice::from_ref(&submit_info), ash::vk::Fence::default());
+            ctx.device.device_wait_idle();
+
+            ctx.device.destroy_buffer(staging_buf, None);
+            ctx.device.free_memory(staging_buf_memory, None);
+        }
+
+
 
         Ok(Self {
             image: texture_image,
-            sampler: Self::create_texture_sampler(ctx)?
+            sampler: Self::create_texture_sampler(ctx)?,
+            image_layout: ash::vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         })
     }
 
@@ -125,6 +141,7 @@ impl Texture {
 
     pub fn destroy_resources(&mut self, device: &ash::Device) {
         unsafe {
+            device.destroy_sampler(self.sampler, None);
             self.image.destroy_resources(device);
         }
     }

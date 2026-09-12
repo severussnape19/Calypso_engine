@@ -4,7 +4,7 @@ use std::{char::MAX, error::Error, ffi::c_void, ops::BitOr, sync::LazyLock, time
 use ash::{khr::swapchain, nv::descriptor_pool_overallocation, vk::{CommandBuffer, Semaphore}};
 use glm::{ Mat4x2, Vec2, Vec3, ext::{look_at, perspective, rotate} };
 
-use crate::{buffer::DeviceBuffer, command_buffer::CommandBuffers, descriptor::UniformDescriptor, image::DeviceImage, log, mesh::Mesh, pipeline::{self, Pipeline}, swapchain::Swapchain, sync::SyncObjects, uniform::{self, UniformBuffer, UniformBufferObject}, vulkan_context::VulkanContext, warn};
+use crate::{buffer::DeviceBuffer, command_buffer::CommandBuffers, descriptor::Descriptor, image::DeviceImage, log, mesh::Mesh, pipeline::{self, Pipeline}, swapchain::Swapchain, sync::SyncObjects, textures::Texture, uniform::{self, UniformBuffer, UniformBufferObject}, vulkan_context::VulkanContext, warn};
 
 const MAX_FRAMES_IN_FLIGHT: u32 = 2;
 static START_TIME: LazyLock<Instant> = LazyLock::new(Instant::now);
@@ -14,7 +14,8 @@ pub struct FrameRenderer {
     vbo: DeviceBuffer,
     ibo: DeviceBuffer,
     ubo: UniformBuffer,
-    uniform_descriptor: UniformDescriptor,
+    texture: Texture,
+    uniform_descriptor: Descriptor,
     command_buffers: CommandBuffers,
     sync_objects : SyncObjects,
     current_frame: usize,
@@ -23,7 +24,7 @@ pub struct FrameRenderer {
 
 impl FrameRenderer {
     pub fn new(ctx: &VulkanContext, swapchain: &Swapchain, pipeline: &Pipeline) -> Result<Self, Box<dyn Error>> {
-        let descriptor_pool = UniformDescriptor::create_descriptor_pool(ctx, MAX_FRAMES_IN_FLIGHT)?;
+        let descriptor_pool = Descriptor::create_descriptor_pool(ctx, MAX_FRAMES_IN_FLIGHT)?;
         let mesh: Mesh = Mesh::data();
 
         let ibo: DeviceBuffer = DeviceBuffer::create_vertex_buffer(
@@ -49,12 +50,14 @@ impl FrameRenderer {
             MAX_FRAMES_IN_FLIGHT)?;
 
         let ubo = UniformBuffer::new(ctx, MAX_FRAMES_IN_FLIGHT as usize)?;
+        let texture = Texture::new("./textures/texture.jpg", ctx)?;
 
-        let uniform_descriptor = UniformDescriptor::new(
+        let uniform_descriptor = Descriptor::new(
             ctx,
             pipeline.descriptor_set_layout,
             descriptor_pool,
             &ubo,
+            &texture,
             MAX_FRAMES_IN_FLIGHT
         )?;
 
@@ -63,6 +66,7 @@ impl FrameRenderer {
             vbo,
             ibo,
             ubo,
+            texture,
             uniform_descriptor,
             command_buffers,
             sync_objects,
@@ -81,6 +85,7 @@ impl FrameRenderer {
             self.vbo.destroy_resources(&ctx.device);
             self.ibo.destroy_resources(&ctx.device);
             self.ubo.destroy_resources(&ctx.device);
+            self.texture.destroy_resources(&ctx.device);
             warn!(WARN, "Buffer objects destroyed!");
 
             self.uniform_descriptor.destroy_resources(&ctx.device);
